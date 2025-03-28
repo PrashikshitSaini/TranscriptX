@@ -111,11 +111,11 @@ async function generateNotesFromTranscription(transcription) {
             {
               role: "system",
               content:
-                "You are an AI assistant that creates well-structured, concise notes from transcriptions. Organize the content with headings, bullet points, and highlight key concepts.",
+                "You are an AI assistant that creates well-structured, Notion-style notes from transcriptions. Format your response using proper markdown with consistent spacing. Include:\n\n1. Use # for main headings, ## for subheadings, and ### for tertiary headings\n2. Use blank lines between sections and paragraphs\n3. Format lists with proper indentation: use - for bullet points, 1. for numbered lists, and - [ ] or - [x] for task lists\n4. Use **bold** for key terms and important concepts\n5. Use > for blockquotes\n6. Maintain consistent hierarchy and organization\n\nEnsure proper spacing between headings, lists, and paragraphs to maintain readability.",
             },
             {
               role: "user",
-              content: `Generate organized, Notion-style notes from this transcription: ${transcription}`,
+              content: `Generate well-formatted Notion-style notes from this transcription. Use proper markdown with consistent spacing between sections:\n\n${transcription}`,
             },
           ],
         }),
@@ -146,18 +146,18 @@ async function generateNotesFromTranscription(transcription) {
   } catch (error) {
     console.error("Error calling DeepSeek API:", error);
 
-    // If we can't connect to the API, provide a fallback for testing
-    // but still report the error
+    // If we can't connect to the API, provide a notion-style fallback for testing
     if (
       error.message.includes("Failed to fetch") ||
       error.message.includes("Network")
     ) {
       console.warn("Using fallback notes generation due to network error");
 
-      // Create structured notes from the transcription as a fallback
+      // Create structured Notion-like notes with proper spacing
       const fallbackNotes = `# Notes from Transcription
 
 ## Key Points
+
 - ${transcription.split(".")[0]}.
 - The main subject discussed is about ${
         transcription.substring(0, 30).toLowerCase().includes("the")
@@ -170,9 +170,11 @@ async function generateNotesFromTranscription(transcription) {
 - There are important concepts mentioned in the text.
 
 ## Summary
+
 ${transcription.substring(0, 150)}...
 
 ## Details
+
 ${
   transcription.length > 150
     ? transcription.substring(150, 300) + "..."
@@ -180,9 +182,13 @@ ${
 }
 
 ## Action Items
-- Review these notes
-- Follow up on key points
-- Consider further research on the topic`;
+
+- [ ] Review these notes
+- [ ] Follow up on key points
+- [x] Generate initial draft
+- [ ] Research more about the topic
+
+> Note: This is a fallback version generated locally due to API connectivity issues.`;
 
       return fallbackNotes;
     }
