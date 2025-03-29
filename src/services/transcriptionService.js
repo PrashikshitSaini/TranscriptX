@@ -5,7 +5,12 @@ const UPLOAD_URL = "https://api.assemblyai.com/v2/upload";
 const TRANSCRIPT_URL = "https://api.assemblyai.com/v2/transcript";
 
 // API key
-const API_KEY = "60bea822bb9a4e7fac97ba0b6bb0f966";
+// Get API key from environment variables
+const API_KEY = process.env.REACT_APP_ASSEMBLY_API_KEY;
+
+if (!API_KEY) {
+  console.error("AssemblyAI API key not found in environment variables");
+}
 
 // Configure axios with default headers for all API calls
 const assemblyInstance = axios.create({

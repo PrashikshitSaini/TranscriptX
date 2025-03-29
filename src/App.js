@@ -88,9 +88,9 @@ async function generateNotesFromTranscription(transcription) {
   const API_KEY = process.env.REACT_APP_DEEPSEEK_API_KEY;
 
   if (!API_KEY) {
-    console.error("DeepSeek API key is missing. Check your .env file.");
+    console.error("Model is missing");
     throw new Error(
-      "API key is missing. Add REACT_APP_DEEPSEEK_API_KEY to your .env file"
+      "Model is missing"
     );
   }
 
@@ -111,7 +111,7 @@ async function generateNotesFromTranscription(transcription) {
             {
               role: "system",
               content:
-                "You are an AI assistant that creates well-structured, Notion-style notes from transcriptions. Format your response using proper markdown with consistent spacing. Include:\n\n1. Use # for main headings, ## for subheadings, and ### for tertiary headings\n2. Use blank lines between sections and paragraphs\n3. Format lists with proper indentation: use - for bullet points, 1. for numbered lists, and - [ ] or - [x] for task lists\n4. Use **bold** for key terms and important concepts\n5. Use > for blockquotes\n6. Maintain consistent hierarchy and organization\n\nEnsure proper spacing between headings, lists, and paragraphs to maintain readability.",
+                "You are an AI assistant that creates well-structured, Notion-style/markdown notes from transcriptions with good headings and bullet points wherever relevant. But don't mention this in the result just give the formatted result. Also give the notes in detail without anything from your side and keeping in the limits of the transcription.",
             },
             {
               role: "user",

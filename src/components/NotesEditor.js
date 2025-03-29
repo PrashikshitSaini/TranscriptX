@@ -4,7 +4,6 @@ import {
   createEditor,
   Editor,
   Transforms,
-  Text,
   Element as SlateElement,
 } from "slate";
 import { Slate, Editable, withReact, useSlate } from "slate-react";
@@ -449,6 +448,401 @@ const processTextFormatting = (text) => {
   return children.length > 0 ? children : [{ text }];
 };
 
+// Helper function to extract text from children nodes
+const extractTextFromChildren = (children) => {
+  if (!children || !Array.isArray(children)) return "";
+
+  return children
+    .map((child) => {
+      if (typeof child.text === "string") {
+        return child.text;
+      }
+      return "";
+    })
+    .join("");
+};
+
+// Enhanced helper to extract text with formatting - fix for missing function
+const extractFormattedText = (children) => {
+  if (!children || !Array.isArray(children)) return "";
+
+  return children
+    .map((child) => {
+      if (typeof child.text === "string") {
+        let text = child.text;
+
+        // No need to re-add markdown syntax, just return the text
+        return text;
+      }
+      return "";
+    })
+    .join("");
+};
+
+// Helper function to extract plain text from editor nodes
+const extractTextFromNodes = (nodes) => {
+  let text = "";
+
+  if (!nodes || !Array.isArray(nodes)) return text;
+
+  nodes.forEach((node) => {
+    if (node.type === "heading-one") {
+      text += "# " + extractTextFromChildren(node.children) + "\n\n";
+    } else if (node.type === "heading-two") {
+      text += "## " + extractTextFromChildren(node.children) + "\n\n";
+    } else if (node.type === "heading-three") {
+      text += "### " + extractTextFromChildren(node.children) + "\n\n";
+    } else if (node.type === "paragraph") {
+      text += extractTextFromChildren(node.children) + "\n\n";
+    } else if (node.type === "bulleted-list") {
+      node.children.forEach((listItem) => {
+        text += "• " + extractTextFromChildren(listItem.children) + "\n";
+      });
+      text += "\n";
+    } else if (node.type === "numbered-list") {
+      node.children.forEach((listItem, index) => {
+        text +=
+          index + 1 + ". " + extractTextFromChildren(listItem.children) + "\n";
+      });
+      text += "\n";
+    } else if (node.type === "task-item") {
+      text +=
+        (node.checked ? "[x] " : "[ ] ") +
+        extractTextFromChildren(node.children) +
+        "\n";
+    } else if (node.type === "block-quote") {
+      text += "> " + extractTextFromChildren(node.children) + "\n\n";
+    }
+  });
+
+  return text;
+};
+
+// Helper function to convert editor value to properly formatted text
+const convertEditorToText = (editorValue) => {
+  let text = "";
+
+  if (!editorValue || !Array.isArray(editorValue)) {
+    return text;
+  }
+
+  editorValue.forEach((node) => {
+    if (node.type === "heading-one") {
+      text += `# ${extractFormattedText(node.children)}\n\n`;
+    } else if (node.type === "heading-two") {
+      text += `## ${extractFormattedText(node.children)}\n\n`;
+    } else if (node.type === "heading-three") {
+      text += `### ${extractFormattedText(node.children)}\n\n`;
+    } else if (node.type === "paragraph") {
+      text += `${extractFormattedText(node.children)}\n\n`;
+    } else if (node.type === "bulleted-list") {
+      node.children.forEach((item) => {
+        text += `• ${extractFormattedText(item.children)}\n`;
+      });
+      text += "\n";
+    } else if (node.type === "numbered-list") {
+      node.children.forEach((item, i) => {
+        text += `${i + 1}. ${extractFormattedText(item.children)}\n`;
+      });
+      text += "\n";
+    } else if (node.type === "block-quote") {
+      text += `> ${extractFormattedText(node.children)}\n\n`;
+    } else if (node.type === "task-item") {
+      text += `${node.checked ? "☑" : "☐"} ${extractFormattedText(
+        node.children
+      )}\n`;
+    }
+  });
+
+  return text;
+};
+
+// Enhanced helper to process markdown in HTML content before capture
+function processMarkdownInHTML(element) {
+  if (!element) return;
+
+  // Process all paragraph and text elements
+  const textContainers = element.querySelectorAll(
+    "p, li, blockquote, h1, h2, h3, span"
+  );
+
+  textContainers.forEach((container) => {
+    // Only process elements with markdown syntax
+    if (
+      !container.innerHTML ||
+      !(
+        container.innerHTML.includes("**") ||
+        container.innerHTML.includes("*") ||
+        container.innerHTML.includes("`")
+      )
+    ) {
+      return;
+    }
+
+    let html = container.innerHTML;
+
+    // Process code blocks first
+    html = html.replace(
+      /`([^`]+)`/g,
+      '<code style="background-color:#f0f0f0;padding:2px 4px;border-radius:3px;font-family:monospace;">$1</code>'
+    );
+
+    // Process bold text
+    html = html.replace(
+      /\*\*([^*]+)\*\*/g,
+      '<strong style="font-weight:bold;">$1</strong>'
+    );
+
+    // Process italic text
+    html = html.replace(
+      /\*([^*]+)\*/g,
+      '<em style="font-style:italic;">$1</em>'
+    );
+
+    // Update the HTML
+    container.innerHTML = html;
+  });
+}
+
+// Simplified PDF Export function with better markdown handling
+const exportToPDF = async (editorRef, editorValue) => {
+  try {
+    const content = editorRef.current;
+    if (!content) {
+      console.error("Editor content reference is null");
+      alert("Could not find editor content to export");
+      return;
+    }
+
+    // Show a loading message
+    alert("Preparing PDF export. This may take a moment...");
+
+    // Create a clean container for capture
+    const exportContainer = document.createElement("div");
+    exportContainer.style.position = "absolute";
+    exportContainer.style.top = "-9999px";
+    exportContainer.style.left = "-9999px";
+    exportContainer.style.width = "794px"; // A4 width in pixels at 96 DPI
+    exportContainer.style.backgroundColor = "#ffffff";
+    exportContainer.style.padding = "40px";
+    exportContainer.style.color = "#000000";
+    exportContainer.style.fontFamily = "Arial, sans-serif";
+
+    // Add styles for better PDF rendering
+    const styleElement = document.createElement("style");
+    styleElement.textContent = `
+      * {
+        color: #000000 !important;
+        background-color: transparent !important;
+        font-family: Arial, sans-serif !important;
+      }
+      strong, b {
+        font-weight: bold !important;
+      }
+      em, i {
+        font-style: italic !important;
+      }
+      code {
+        font-family: monospace !important;
+        background-color: #f0f0f0 !important;
+        padding: 2px 4px !important;
+        border-radius: 3px !important;
+      }
+      h1 {
+        font-size: 24px !important;
+        font-weight: bold !important;
+        margin-bottom: 12px !important;
+        border-bottom: 1px solid #cccccc !important;
+        padding-bottom: 5px !important;
+      }
+      h2 {
+        font-size: 20px !important;
+        font-weight: bold !important;
+        margin-top: 15px !important;
+        margin-bottom: 8px !important;
+      }
+      h3 {
+        font-size: 16px !important;
+        font-weight: bold !important;
+        margin-top: 12px !important;
+        margin-bottom: 6px !important;
+      }
+      p, li, blockquote {
+        margin-bottom: 8px !important;
+        line-height: 1.5 !important;
+      }
+      ul, ol {
+        padding-left: 20px !important;
+        margin-bottom: 10px !important;
+      }
+      blockquote {
+        border-left: 2px solid #999 !important;
+        padding-left: 10px !important;
+        font-style: italic !important;
+      }
+    `;
+
+    document.head.appendChild(styleElement);
+    document.body.appendChild(exportContainer);
+
+    try {
+      // Clone the editor content but only get the editable part
+      const editorContent = content.querySelector('[contenteditable="true"]');
+      if (!editorContent) {
+        throw new Error("Could not find editable content");
+      }
+
+      // Clone and clean up the content
+      const contentClone = editorContent.cloneNode(true);
+
+      // Apply styles for PDF
+      contentClone.style.color = "#000000";
+      contentClone.style.backgroundColor = "#ffffff";
+      contentClone.style.fontFamily = "Arial, sans-serif";
+      contentClone.style.padding = "20px";
+      contentClone.style.width = "auto";
+
+      // Process markdown syntax in the HTML content
+      processMarkdownInHTML(contentClone);
+
+      // Add additional styling for better appearance
+      const allElements = contentClone.querySelectorAll("*");
+      allElements.forEach((el) => {
+        if (el.tagName === "H1") {
+          Object.assign(el.style, {
+            fontSize: "24px",
+            fontWeight: "bold",
+            marginBottom: "12px",
+            borderBottom: "1px solid #cccccc",
+            paddingBottom: "5px",
+            color: "#000000",
+          });
+        } else if (el.tagName === "H2") {
+          Object.assign(el.style, {
+            fontSize: "20px",
+            fontWeight: "bold",
+            marginTop: "15px",
+            marginBottom: "8px",
+            color: "#000000",
+          });
+        } else if (el.tagName === "H3") {
+          Object.assign(el.style, {
+            fontSize: "16px",
+            fontWeight: "bold",
+            marginTop: "12px",
+            marginBottom: "6px",
+            color: "#000000",
+          });
+        } else if (el.tagName === "P") {
+          Object.assign(el.style, {
+            marginBottom: "8px",
+            lineHeight: "1.5",
+            color: "#000000",
+          });
+        } else if (el.tagName === "UL" || el.tagName === "OL") {
+          Object.assign(el.style, {
+            paddingLeft: "20px",
+            marginBottom: "10px",
+            color: "#000000",
+          });
+        } else if (el.tagName === "LI") {
+          Object.assign(el.style, {
+            marginBottom: "3px",
+            color: "#000000",
+          });
+        } else if (el.tagName === "BLOCKQUOTE") {
+          Object.assign(el.style, {
+            borderLeft: "2px solid #999",
+            paddingLeft: "10px",
+            fontStyle: "italic",
+            color: "#000000",
+          });
+        } else if (el.tagName === "STRONG" || el.style.fontWeight === "bold") {
+          el.style.fontWeight = "bold";
+          el.style.color = "#000000";
+        } else if (el.tagName === "EM" || el.style.fontStyle === "italic") {
+          el.style.fontStyle = "italic";
+          el.style.color = "#000000";
+        } else if (el.tagName === "CODE") {
+          Object.assign(el.style, {
+            fontFamily: "monospace",
+            backgroundColor: "#f0f0f0",
+            padding: "2px 4px",
+            borderRadius: "3px",
+            color: "#000000",
+          });
+        }
+      });
+
+      exportContainer.innerHTML = "";
+      exportContainer.appendChild(contentClone);
+
+      // Create a new jsPDF instance
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      });
+
+      // Calculate dimensions
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+
+      // Split the content into page-sized chunks and create a PDF
+      // We'll measure the actual content height
+      const contentHeight = exportContainer.offsetHeight;
+      const pageContentHeight = (pdfHeight - 20) * 3.779527559; // Convert mm to px
+
+      // Calculate how many pages we need
+      const totalPages = Math.ceil(contentHeight / pageContentHeight);
+
+      // Capture each page separately
+      for (let page = 0; page < totalPages; page++) {
+        // Update container position to show the current page
+        exportContainer.style.top = `-${page * pageContentHeight}px`;
+
+        // Delay to ensure rendering
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        // Capture the current visible part
+        const canvas = await html2canvas(exportContainer, {
+          scale: 2,
+          logging: false,
+          windowHeight: pageContentHeight,
+          y: page * pageContentHeight,
+          height: pageContentHeight,
+          backgroundColor: "#ffffff",
+        });
+
+        // Convert canvas to image
+        const imgData = canvas.toDataURL("image/png");
+
+        // Add new page if not first page
+        if (page > 0) {
+          pdf.addPage();
+        }
+
+        // Add image to PDF
+        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      }
+
+      // Save the PDF
+      pdf.save("TranscriptX_Notes.pdf");
+    } finally {
+      // Clean up
+      if (document.body.contains(exportContainer)) {
+        document.body.removeChild(exportContainer);
+      }
+      if (document.head.contains(styleElement)) {
+        document.head.removeChild(styleElement);
+      }
+    }
+  } catch (error) {
+    console.error("Error in PDF export:", error);
+    alert(`PDF export failed: ${error.message}. Please try again.`);
+  }
+};
+
 // Define custom elements for the editor
 const Element = ({ attributes, children, element }) => {
   switch (element.type) {
@@ -575,304 +969,6 @@ const FormatButton = ({ format, icon, blockFormat = false, tooltip }) => {
       {icon}
     </ToolbarButton>
   );
-};
-
-// Fixed PDF Export function with proper background and text colors
-const exportToPDF = async (editorRef, editorValue) => {
-  try {
-    const content = editorRef.current;
-    if (!content) {
-      console.error("Editor content reference is null");
-      alert("Could not find editor content to export");
-      return;
-    }
-
-    // Add a short delay to ensure content is properly rendered
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Create a temporary container to get a clean capture without toolbar
-    const tempContainer = document.createElement("div");
-    tempContainer.style.position = "absolute";
-    tempContainer.style.top = "-9999px";
-    tempContainer.style.left = "-9999px";
-    tempContainer.style.width = "794px"; // A4 width in pixels at 96 DPI
-    tempContainer.style.padding = "40px";
-    tempContainer.style.backgroundColor = "#ffffff"; // White for PDF export
-    tempContainer.style.color = "#000000"; // Black text for PDF export
-    tempContainer.style.fontFamily = "Arial, sans-serif";
-
-    // Clone the editor content (without toolbar)
-    const clonedContent = content.cloneNode(true);
-
-    // Remove the toolbar if present in the cloned content
-    const toolbar = clonedContent.querySelector('div[role="toolbar"]');
-    if (toolbar) {
-      toolbar.remove();
-    }
-
-    // Deep clone only the editable content
-    const editableContent = clonedContent.querySelector(
-      '[contenteditable="true"]'
-    );
-    if (editableContent) {
-      // Clear the temporary container and only add the editable part
-      tempContainer.innerHTML = "";
-      tempContainer.appendChild(editableContent);
-    }
-
-    // Apply PDF-friendly styles to force proper rendering
-    const styleElement = document.createElement("style");
-    styleElement.textContent = `
-      * {
-        color: #000000 !important;
-        background-color: transparent !important;
-      }
-      body, div, p, h1, h2, h3, h4, h5, h6, ul, ol, li, span {
-        color: #000000 !important;
-        background-color: transparent !important;
-        font-family: Arial, sans-serif !important;
-      }
-      h1 {
-        font-size: 24px !important;
-        font-weight: bold !important;
-        margin-bottom: 10px !important;
-        border-bottom: 1px solid #cccccc !important;
-        padding-bottom: 5px !important;
-      }
-      h2 {
-        font-size: 20px !important;
-        font-weight: bold !important;
-        margin-top: 15px !important;
-        margin-bottom: 8px !important;
-      }
-      h3 {
-        font-size: 16px !important;
-        font-weight: bold !important;
-        margin-top: 12px !important;
-        margin-bottom: 6px !important;
-      }
-      p {
-        margin-bottom: 8px !important;
-      }
-      ul, ol {
-        padding-left: 20px !important;
-        margin-bottom: 10px !important;
-      }
-      li {
-        margin-bottom: 3px !important;
-      }
-      blockquote {
-        border-left: 2px solid #aaaaaa !important;
-        padding-left: 10px !important;
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        color: #333333 !important;
-        background-color: #f5f5f5 !important;
-        padding: 5px 10px !important;
-      }
-      .task-list-item {
-        display: flex !important;
-        align-items: center !important;
-        margin-bottom: 3px !important;
-      }
-      .task-checkbox {
-        margin-right: 5px !important;
-      }
-    `;
-
-    // Add the styles to the document head for the temporary container
-    document.head.appendChild(styleElement);
-
-    // Add the temporary container to the document body
-    document.body.appendChild(tempContainer);
-
-    try {
-      // Use html2canvas with explicit configuration for proper rendering
-      const canvas = await html2canvas(tempContainer, {
-        scale: 2,
-        logging: false,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: "#ffffff",
-        onclone: (clonedDoc) => {
-          // Ensure the cloned document has proper styling
-          const allElements = clonedDoc.querySelectorAll("*");
-          allElements.forEach((el) => {
-            if (el.style) {
-              el.style.color = "#000000";
-              el.style.backgroundColor = "transparent";
-            }
-          });
-        },
-      });
-
-      // Create PDF with the captured content
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-        compress: true,
-      });
-
-      // Set PDF metadata
-      pdf.setProperties({
-        title: "TranscriptX Notes",
-        subject: "Generated Notes",
-        creator: "TranscriptX",
-        author: "TranscriptX",
-      });
-
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 297; // A4 height in mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      // Add image to PDF with white background
-      pdf.setFillColor(255, 255, 255);
-      pdf.rect(
-        0,
-        0,
-        pdf.internal.pageSize.getWidth(),
-        pdf.internal.pageSize.getHeight(),
-        "F"
-      );
-      pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
-
-      // Handle multi-page content
-      let heightLeft = imgHeight - pageHeight;
-      let position = -pageHeight;
-
-      while (heightLeft > 0) {
-        pdf.addPage();
-        pdf.setFillColor(255, 255, 255);
-        pdf.rect(
-          0,
-          0,
-          pdf.internal.pageSize.getWidth(),
-          pdf.internal.pageSize.getHeight(),
-          "F"
-        );
-        position = position - pageHeight;
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-
-      // Save PDF
-      pdf.save("TranscriptX_Notes.pdf");
-    } finally {
-      // Clean up
-      document.body.removeChild(tempContainer);
-      document.head.removeChild(styleElement);
-    }
-  } catch (error) {
-    console.error("Error exporting PDF:", error);
-    alert("Failed to export PDF: " + error.message);
-
-    // Try alternate PDF generation method if the main method fails
-    try {
-      console.log("Attempting alternative PDF export method...");
-      const content = editorRef.current;
-
-      if (!content) {
-        throw new Error("Could not find editor content");
-      }
-
-      // Create a new jsPDF instance
-      const pdf = new jsPDF();
-
-      // Convert editor content to text - pass editorValue parameter
-      const textContent = extractTextFromNodes(editorValue);
-
-      // Add text content to PDF manually
-      const margins = {
-        top: 20,
-        bottom: 20,
-        left: 20,
-        right: 20,
-      };
-
-      pdf.setTextColor(0, 0, 0);
-      pdf.setFontSize(12);
-
-      // Split text by paragraphs
-      const paragraphs = textContent.split("\n");
-
-      let yPos = margins.top;
-
-      // Add each paragraph
-      paragraphs.forEach((paragraph) => {
-        if (paragraph.trim() === "") return;
-
-        // Check if we need a new page
-        if (yPos > pdf.internal.pageSize.height - margins.bottom) {
-          pdf.addPage();
-          yPos = margins.top;
-        }
-
-        // Add the paragraph text
-        pdf.text(paragraph, margins.left, yPos);
-        yPos += 10; // increment y position
-      });
-
-      pdf.save("TranscriptX_Notes_Alternative.pdf");
-    } catch (fallbackError) {
-      console.error("Alternative PDF export also failed:", fallbackError);
-      alert("PDF export failed with both methods. Please try again later.");
-    }
-  }
-};
-
-// Helper function to extract plain text from editor nodes
-const extractTextFromNodes = (nodes) => {
-  let text = "";
-
-  if (!nodes || !Array.isArray(nodes)) return text;
-
-  nodes.forEach((node) => {
-    if (node.type === "heading-one") {
-      text += "# " + extractTextFromChildren(node.children) + "\n\n";
-    } else if (node.type === "heading-two") {
-      text += "## " + extractTextFromChildren(node.children) + "\n\n";
-    } else if (node.type === "heading-three") {
-      text += "### " + extractTextFromChildren(node.children) + "\n\n";
-    } else if (node.type === "paragraph") {
-      text += extractTextFromChildren(node.children) + "\n\n";
-    } else if (node.type === "bulleted-list") {
-      node.children.forEach((listItem) => {
-        text += "• " + extractTextFromChildren(listItem.children) + "\n";
-      });
-      text += "\n";
-    } else if (node.type === "numbered-list") {
-      node.children.forEach((listItem, index) => {
-        text +=
-          index + 1 + ". " + extractTextFromChildren(listItem.children) + "\n";
-      });
-      text += "\n";
-    } else if (node.type === "task-item") {
-      text +=
-        (node.checked ? "[x] " : "[ ] ") +
-        extractTextFromChildren(node.children) +
-        "\n";
-    } else if (node.type === "block-quote") {
-      text += "> " + extractTextFromChildren(node.children) + "\n\n";
-    }
-  });
-
-  return text;
-};
-
-// Helper function to extract text from children nodes
-const extractTextFromChildren = (children) => {
-  if (!children || !Array.isArray(children)) return "";
-
-  return children
-    .map((child) => {
-      if (typeof child.text === "string") {
-        return child.text;
-      }
-      return "";
-    })
-    .join("");
 };
 
 function NotesEditor({ initialValue }) {
