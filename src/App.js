@@ -66,7 +66,7 @@ function App() {
             onClick={handleGenerateNotes}
             disabled={!transcription.trim() || isProcessing}
           >
-            {isProcessing ? "Generating..." : "Generate Notes"}
+            {isProcessing ? "Generating..." : "Generate Notes(refresh for new notes)"}
           </button>
           {error && <div className="error-message">{error}</div>}
         </div>

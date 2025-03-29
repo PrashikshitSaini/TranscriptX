@@ -1021,7 +1021,7 @@ function NotesEditor({ initialValue }) {
     return (
       <EditorContainer>
         <EditorHeader>
-          <EditorTitle>Generated Notes</EditorTitle>
+          <EditorTitle>Generated Notes(refresh page for new notes)</EditorTitle>
         </EditorHeader>
         <div
           style={{
