@@ -66,6 +66,7 @@ async function requestTranscription(audioUrl, onProgress) {
     // Make sure we're sending the correct format
     const requestData = {
       audio_url: audioUrl,
+      language_detection: true,
     };
 
     // Log the request for debugging
