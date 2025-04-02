@@ -66,7 +66,9 @@ function App() {
             onClick={handleGenerateNotes}
             disabled={!transcription.trim() || isProcessing}
           >
-            {isProcessing ? "Generating..." : "Generate Notes(refresh for new notes)"}
+            {isProcessing
+              ? "Generating..."
+              : "Generate Notes(refresh for new notes)"}
           </button>
           {error && <div className="error-message">{error}</div>}
         </div>
@@ -89,9 +91,7 @@ async function generateNotesFromTranscription(transcription) {
 
   if (!API_KEY) {
     console.error("Model is missing");
-    throw new Error(
-      "Model is missing"
-    );
+    throw new Error("Model is missing");
   }
 
   try {
@@ -111,7 +111,7 @@ async function generateNotesFromTranscription(transcription) {
             {
               role: "system",
               content:
-                "You are an AI assistant that creates well-structured, Notion-style/markdown notes from transcriptions with good headings and bullet points wherever relevant. But don't mention this in the result just give the formatted result. Also give the notes in detail without anything from your side and keeping in the limits of the transcription.",
+                "You are an AI assistant that creates well-structured, Notion-style/markdown notes from transcriptions with good headings and bullet points wherever relevant. But don't mention this in the result just give the formatted result. Also give the notes in detail without anything from your side and keeping in the limits of the transcription.NOTE: Even if the transcription is in hindi or a mix of languages,you have make the notes only in English",
             },
             {
               role: "user",
