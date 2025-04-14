@@ -3,6 +3,15 @@ import ReactDOM from "react-dom/client";
 import "./styles/index.css";
 import App from "./App";
 import { enableApiLogging } from "./utils/apiUtils";
+import { Buffer } from "buffer";
+
+// Make sure global objects are available
+window.Buffer = window.Buffer || Buffer;
+
+// Make sure process is defined
+if (typeof process === "undefined") {
+  window.process = require("../src/polyfills/process-browser.js");
+}
 
 // Enable API logging in development
 enableApiLogging();

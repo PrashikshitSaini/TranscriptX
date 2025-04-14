@@ -5,8 +5,12 @@ import AudioRecorder from "./components/AudioRecorder";
 import FileUploader from "./components/FileUploader";
 import TranscriptionDisplay from "./components/TranscriptionDisplay";
 import NotesEditor from "./components/NotesEditor";
+import Login from "./components/Login";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
-function App() {
+// Main App Content
+function AppContent() {
+  const { currentUser, logout } = useAuth();
   const [transcription, setTranscription] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [generatedNotes, setGeneratedNotes] = useState("");
@@ -47,9 +51,14 @@ function App() {
     }
   };
 
+  // If not logged in, show login screen
+  if (!currentUser) {
+    return <Login />;
+  }
+
   return (
     <div className="app">
-      <Header />
+      <Header currentUser={currentUser} onLogout={logout} />
       <main className="content">
         <div className="sidebar">
           <AudioRecorder
@@ -195,6 +204,15 @@ ${
 
     throw error;
   }
+}
+
+// Main App wrapped with AuthProvider
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
 }
 
 export default App;
