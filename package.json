@@ -39,7 +39,8 @@
         "styled-components": "^5.3.11",
         "url": "^0.11.3",
         "util": "^0.12.5",
-        "web-vitals": "^2.1.4"
+        "web-vitals": "^2.1.4",
+        "react-app-rewired": "^2.2.1"
     },
     "scripts": {
         "start": "node server.js",
@@ -48,9 +49,7 @@
         "test": "react-app-rewired test",
         "eject": "react-scripts eject"
     },
-    "devDependencies": {
-        "react-app-rewired": "^2.2.1"
-    },
+
     "eslintConfig": {
         "extends": [
             "react-app",
