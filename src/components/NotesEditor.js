@@ -5,6 +5,7 @@ import {
   Editor,
   Transforms,
   Element as SlateElement,
+  Text,
 } from "slate";
 import { Slate, Editable, withReact, useSlate } from "slate-react";
 import { withHistory } from "slate-history";
@@ -185,7 +186,35 @@ const ContentArea = styled.div`
   background-color: var(--bg-secondary);
 `;
 
-// Default value with Notion-like structure
+const CornellNoteContainer = styled.div`
+  display: grid;
+  grid-template-columns: 30% 70%;
+  gap: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  margin: 12px 0;
+  overflow: hidden;
+`;
+
+const CornellQuestionColumn = styled.div`
+  background-color: var(--bg-tertiary);
+  padding: 12px;
+  border-right: 1px solid var(--border-color);
+  font-weight: 500;
+`;
+
+const CornellAnswerColumn = styled.div`
+  padding: 12px;
+`;
+
+const CornellSummary = styled.div`
+  grid-column: span 2;
+  border-top: 1px solid var(--border-color);
+  padding: 12px;
+  background-color: rgba(0, 0, 0, 0.02);
+  font-style: italic;
+`;
+
 const DEFAULT_VALUE = [
   {
     type: "heading-one",
@@ -197,187 +226,317 @@ const DEFAULT_VALUE = [
   },
 ];
 
-// Enhanced deserializer for markdown that properly handles formatting
+const Leaf = ({ attributes, children, leaf }) => {
+  if (leaf.bold) {
+    children = <strong>{children}</strong>;
+  }
+
+  if (leaf.italic) {
+    children = <em>{children}</em>;
+  }
+
+  if (leaf.underline) {
+    children = <u>{children}</u>;
+  }
+
+  if (leaf.code) {
+    children = <code>{children}</code>;
+  }
+
+  return <span {...attributes}>{children}</span>;
+};
+
+const FormatButton = ({ format, icon, blockFormat = false, tooltip }) => {
+  const editor = useSlate();
+
+  const isFormatActive = () => {
+    if (blockFormat) {
+      const [match] = Editor.nodes(editor, {
+        match: (n) => n.type === format,
+      });
+      return !!match;
+    } else {
+      const marks = Editor.marks(editor);
+      return marks ? marks[format] === true : false;
+    }
+  };
+
+  const toggleFormat = (event) => {
+    event.preventDefault();
+
+    if (blockFormat) {
+      const isActive = isFormatActive();
+      const isList = format === "bulleted-list" || format === "numbered-list";
+
+      Transforms.unwrapNodes(editor, {
+        match: (n) =>
+          !Editor.isEditor(n) &&
+          SlateElement.isElement(n) &&
+          ["bulleted-list", "numbered-list"].includes(n.type),
+        split: true,
+      });
+
+      const newType = isActive ? "paragraph" : isList ? "list-item" : format;
+
+      Transforms.setNodes(editor, {
+        type: newType,
+      });
+
+      if (!isActive && isList) {
+        const block = { type: format, children: [] };
+        Transforms.wrapNodes(editor, block);
+      }
+    } else {
+      const isActive = isFormatActive();
+      if (isActive) {
+        Editor.removeMark(editor, format);
+      } else {
+        Editor.addMark(editor, format, true);
+      }
+    }
+  };
+
+  return (
+    <ToolbarButton
+      active={isFormatActive()}
+      onMouseDown={toggleFormat}
+      title={tooltip}
+    >
+      {icon}
+    </ToolbarButton>
+  );
+};
+
 const deserialize = (content) => {
   if (!content || typeof content !== "string" || content.trim() === "") {
     return DEFAULT_VALUE;
   }
 
   try {
-    // Normalize line endings
     const normalizedContent = content.replace(/\r\n/g, "\n");
-
-    // Pre-processing to fix common formatting issues
-    let processedContent = normalizedContent;
-
-    // Split by lines for processing
-    const lines = processedContent.split("\n");
+    const lines = normalizedContent.split("\n");
     const nodes = [];
     let currentList = null;
     let i = 0;
 
-    while (i < lines.length) {
-      let line = lines[i].trim();
+    const hasCornellFormat = lines.some(
+      (line) =>
+        line.includes("||") ||
+        (line.includes("Question") && line.includes("Answer")) ||
+        (line.includes("Cue") && line.includes("Note"))
+    );
 
-      // Skip empty lines but add a paragraph to preserve spacing
-      if (line === "") {
-        if (currentList) {
-          nodes.push(currentList);
-          currentList = null;
-        }
-        i++;
-        continue;
-      }
+    if (hasCornellFormat) {
+      let cornellNotes = [];
+      let inSummary = false;
 
-      // Process heading lines
-      if (line.startsWith("# ")) {
-        if (currentList) {
-          nodes.push(currentList);
-          currentList = null;
-        }
+      while (i < lines.length) {
+        const line = lines[i].trim();
 
-        // Get all text after the # marker
-        const headingText = line.substring(2);
-        nodes.push({
-          type: "heading-one",
-          children: [{ text: headingText }],
-        });
-        i++;
-      } else if (line.startsWith("## ")) {
-        if (currentList) {
-          nodes.push(currentList);
-          currentList = null;
+        if (line === "") {
+          i++;
+          continue;
         }
 
-        const headingText = line.substring(3);
-        nodes.push({
-          type: "heading-two",
-          children: [{ text: headingText }],
-        });
-        i++;
-      } else if (line.startsWith("### ")) {
-        if (currentList) {
-          nodes.push(currentList);
-          currentList = null;
+        if (line.toLowerCase().includes("summary") && !line.includes("||")) {
+          inSummary = true;
+          i++;
+          continue;
         }
 
-        const headingText = line.substring(4);
-        nodes.push({
-          type: "heading-three",
-          children: [{ text: headingText }],
-        });
-        i++;
-      }
-      // Process unordered list items
-      else if (line.startsWith("- ") || line.startsWith("* ")) {
-        const listItemText = line.substring(2);
+        if (line.includes("||")) {
+          const [question, answer] = line
+            .split("||")
+            .map((part) => part.trim());
 
-        // Process for bold, italic etc. within the list item
-        const formattedText = processTextFormatting(listItemText);
-
-        const listItem = {
-          type: "list-item",
-          children: formattedText,
-        };
-
-        if (!currentList) {
-          currentList = {
-            type: "bulleted-list",
-            children: [listItem],
-          };
-        } else if (currentList.type === "bulleted-list") {
-          currentList.children.push(listItem);
+          cornellNotes.push({
+            type: "cornell-note",
+            question: question || "",
+            answer: answer || "",
+            summary: "",
+            children: [{ text: "" }],
+          });
+        } else if (inSummary) {
+          if (
+            cornellNotes.length > 0 &&
+            cornellNotes[cornellNotes.length - 1].type === "cornell-note"
+          ) {
+            const lastNote = cornellNotes[cornellNotes.length - 1];
+            lastNote.summary = (lastNote.summary + " " + line).trim();
+          }
         } else {
-          nodes.push(currentList);
-          currentList = {
-            type: "bulleted-list",
-            children: [listItem],
-          };
+          if (line.startsWith("# ")) {
+            nodes.push({
+              type: "heading-one",
+              children: [{ text: line.substring(2) }],
+            });
+          } else if (
+            !line.includes("Question") &&
+            !line.includes("Answer") &&
+            !line.includes("Cue") &&
+            !line.includes("Note")
+          ) {
+            nodes.push({
+              type: "paragraph",
+              children: [{ text: line }],
+            });
+          }
         }
+
         i++;
       }
-      // Process numbered list items
-      else if (/^\d+\.\s/.test(line)) {
-        const listItemText = line.substring(line.indexOf(".") + 2);
 
-        // Process for bold, italic etc. within the list item
-        const formattedText = processTextFormatting(listItemText);
+      if (cornellNotes.length > 0) {
+        nodes.push(...cornellNotes);
+      }
+    } else {
+      while (i < lines.length) {
+        let line = lines[i].trim();
 
-        const listItem = {
-          type: "list-item",
-          children: formattedText,
-        };
+        if (line === "") {
+          if (currentList) {
+            nodes.push(currentList);
+            currentList = null;
+          }
+          i++;
+          continue;
+        }
 
-        if (!currentList) {
-          currentList = {
-            type: "numbered-list",
-            children: [listItem],
+        if (line.startsWith("# ")) {
+          if (currentList) {
+            nodes.push(currentList);
+            currentList = null;
+          }
+
+          const headingText = line.substring(2);
+          nodes.push({
+            type: "heading-one",
+            children: [{ text: headingText }],
+          });
+          i++;
+        } else if (line.startsWith("## ")) {
+          if (currentList) {
+            nodes.push(currentList);
+            currentList = null;
+          }
+
+          const headingText = line.substring(3);
+          nodes.push({
+            type: "heading-two",
+            children: [{ text: headingText }],
+          });
+          i++;
+        } else if (line.startsWith("### ")) {
+          if (currentList) {
+            nodes.push(currentList);
+            currentList = null;
+          }
+
+          const headingText = line.substring(4);
+          nodes.push({
+            type: "heading-three",
+            children: [{ text: headingText }],
+          });
+          i++;
+        } else if (line.startsWith("- ") || line.startsWith("* ")) {
+          const listItemText = line.substring(2);
+
+          const formattedText = processTextFormatting(listItemText);
+
+          const listItem = {
+            type: "list-item",
+            children: formattedText,
           };
-        } else if (currentList.type === "numbered-list") {
-          currentList.children.push(listItem);
+
+          if (!currentList) {
+            currentList = {
+              type: "bulleted-list",
+              children: [listItem],
+            };
+          } else if (currentList.type === "bulleted-list") {
+            currentList.children.push(listItem);
+          } else {
+            nodes.push(currentList);
+            currentList = {
+              type: "bulleted-list",
+              children: [listItem],
+            };
+          }
+          i++;
+        } else if (/^\d+\.\s/.test(line)) {
+          const listItemText = line.substring(line.indexOf(".") + 2);
+
+          const formattedText = processTextFormatting(listItemText);
+
+          const listItem = {
+            type: "list-item",
+            children: formattedText,
+          };
+
+          if (!currentList) {
+            currentList = {
+              type: "numbered-list",
+              children: [listItem],
+            };
+          } else if (currentList.type === "numbered-list") {
+            currentList.children.push(listItem);
+          } else {
+            nodes.push(currentList);
+            currentList = {
+              type: "numbered-list",
+              children: [listItem],
+            };
+          }
+          i++;
+        } else if (line.startsWith("> ")) {
+          if (currentList) {
+            nodes.push(currentList);
+            currentList = null;
+          }
+
+          const quoteText = line.substring(2);
+          const formattedText = processTextFormatting(quoteText);
+
+          nodes.push({
+            type: "block-quote",
+            children: formattedText,
+          });
+          i++;
+        } else if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
+          if (currentList) {
+            nodes.push(currentList);
+            currentList = null;
+          }
+
+          const isChecked = line.startsWith("- [x] ");
+          const taskText = line.substring(6);
+          const formattedText = processTextFormatting(taskText);
+
+          nodes.push({
+            type: "task-item",
+            checked: isChecked,
+            children: formattedText,
+          });
+          i++;
         } else {
-          nodes.push(currentList);
-          currentList = {
-            type: "numbered-list",
-            children: [listItem],
-          };
+          if (currentList) {
+            nodes.push(currentList);
+            currentList = null;
+          }
+
+          const formattedText = processTextFormatting(line);
+
+          nodes.push({
+            type: "paragraph",
+            children: formattedText,
+          });
+          i++;
         }
-        i++;
       }
-      // Process blockquotes
-      else if (line.startsWith("> ")) {
-        if (currentList) {
-          nodes.push(currentList);
-          currentList = null;
-        }
 
-        const quoteText = line.substring(2);
-        const formattedText = processTextFormatting(quoteText);
-
-        nodes.push({
-          type: "block-quote",
-          children: formattedText,
-        });
-        i++;
+      if (currentList) {
+        nodes.push(currentList);
       }
-      // Process task lists
-      else if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
-        if (currentList) {
-          nodes.push(currentList);
-          currentList = null;
-        }
-
-        const isChecked = line.startsWith("- [x] ");
-        const taskText = line.substring(6);
-        const formattedText = processTextFormatting(taskText);
-
-        nodes.push({
-          type: "task-item",
-          checked: isChecked,
-          children: formattedText,
-        });
-        i++;
-      }
-      // Regular paragraphs - look for formatting
-      else {
-        if (currentList) {
-          nodes.push(currentList);
-          currentList = null;
-        }
-
-        const formattedText = processTextFormatting(line);
-
-        nodes.push({
-          type: "paragraph",
-          children: formattedText,
-        });
-        i++;
-      }
-    }
-
-    // Add any remaining list
-    if (currentList) {
-      nodes.push(currentList);
     }
 
     return nodes.length > 0 ? nodes : DEFAULT_VALUE;
@@ -387,22 +546,16 @@ const deserialize = (content) => {
   }
 };
 
-// Helper function to process text formatting like bold, italic, etc.
 const processTextFormatting = (text) => {
-  // Simple regex-based approach for basic formatting
   let children = [];
 
-  // Check if there's any formatting to process
   if (text.includes("**") || text.includes("*") || text.includes("`")) {
-    // Split text into segments based on formatting tokens
     let segments = [];
     let currentIndex = 0;
 
-    // Bold processing
     const boldRegex = /\*\*(.*?)\*\*/g;
     let boldMatch;
     while ((boldMatch = boldRegex.exec(text)) !== null) {
-      // Add text before the match
       if (boldMatch.index > currentIndex) {
         segments.push({
           text: text.substring(currentIndex, boldMatch.index),
@@ -410,7 +563,6 @@ const processTextFormatting = (text) => {
         });
       }
 
-      // Add the bold text
       segments.push({
         text: boldMatch[1],
         format: "bold",
@@ -419,7 +571,6 @@ const processTextFormatting = (text) => {
       currentIndex = boldMatch.index + boldMatch[0].length;
     }
 
-    // Add remaining text
     if (currentIndex < text.length) {
       segments.push({
         text: text.substring(currentIndex),
@@ -427,11 +578,9 @@ const processTextFormatting = (text) => {
       });
     }
 
-    // If no bold formatting was found, just use the original text
     if (segments.length === 0) {
       children.push({ text });
     } else {
-      // Convert segments to children
       segments.forEach((segment) => {
         if (segment.format === "bold") {
           children.push({ text: segment.text, bold: true });
@@ -441,170 +590,57 @@ const processTextFormatting = (text) => {
       });
     }
   } else {
-    // No formatting, just add the text
     children.push({ text });
   }
 
   return children.length > 0 ? children : [{ text }];
 };
 
-// Helper function to extract text from children nodes
-const extractTextFromChildren = (children) => {
-  if (!children || !Array.isArray(children)) return "";
-
-  return children
-    .map((child) => {
-      if (typeof child.text === "string") {
-        return child.text;
-      }
-      return "";
-    })
-    .join("");
-};
-
-// Enhanced helper to extract text with formatting - fix for missing function
-const extractFormattedText = (children) => {
-  if (!children || !Array.isArray(children)) return "";
-
-  return children
-    .map((child) => {
-      if (typeof child.text === "string") {
-        let text = child.text;
-
-        // No need to re-add markdown syntax, just return the text
-        return text;
-      }
-      return "";
-    })
-    .join("");
-};
-
-// Helper function to extract plain text from editor nodes
-const extractTextFromNodes = (nodes) => {
-  let text = "";
-
-  if (!nodes || !Array.isArray(nodes)) return text;
-
-  nodes.forEach((node) => {
-    if (node.type === "heading-one") {
-      text += "# " + extractTextFromChildren(node.children) + "\n\n";
-    } else if (node.type === "heading-two") {
-      text += "## " + extractTextFromChildren(node.children) + "\n\n";
-    } else if (node.type === "heading-three") {
-      text += "### " + extractTextFromChildren(node.children) + "\n\n";
-    } else if (node.type === "paragraph") {
-      text += extractTextFromChildren(node.children) + "\n\n";
-    } else if (node.type === "bulleted-list") {
-      node.children.forEach((listItem) => {
-        text += "• " + extractTextFromChildren(listItem.children) + "\n";
-      });
-      text += "\n";
-    } else if (node.type === "numbered-list") {
-      node.children.forEach((listItem, index) => {
-        text +=
-          index + 1 + ". " + extractTextFromChildren(listItem.children) + "\n";
-      });
-      text += "\n";
-    } else if (node.type === "task-item") {
-      text +=
-        (node.checked ? "[x] " : "[ ] ") +
-        extractTextFromChildren(node.children) +
-        "\n";
-    } else if (node.type === "block-quote") {
-      text += "> " + extractTextFromChildren(node.children) + "\n\n";
-    }
-  });
-
-  return text;
-};
-
-// Helper function to convert editor value to properly formatted text
-const convertEditorToText = (editorValue) => {
-  let text = "";
-
-  if (!editorValue || !Array.isArray(editorValue)) {
-    return text;
+const Element = ({ attributes, children, element }) => {
+  switch (element.type) {
+    case "heading-one":
+      return <h1 {...attributes}>{children}</h1>;
+    case "heading-two":
+      return <h2 {...attributes}>{children}</h2>;
+    case "heading-three":
+      return <h3 {...attributes}>{children}</h3>;
+    case "bulleted-list":
+      return <ul {...attributes}>{children}</ul>;
+    case "numbered-list":
+      return <ol {...attributes}>{children}</ol>;
+    case "list-item":
+      return <li {...attributes}>{children}</li>;
+    case "block-quote":
+      return <blockquote {...attributes}>{children}</blockquote>;
+    case "task-item":
+      return (
+        <div className="task-list-item" {...attributes}>
+          <input
+            type="checkbox"
+            className="task-checkbox"
+            checked={element.checked || false}
+            onChange={() => {}}
+            contentEditable={false}
+          />
+          <span>{children}</span>
+        </div>
+      );
+    case "cornell-note":
+      return (
+        <CornellNoteContainer {...attributes} contentEditable={false}>
+          <CornellQuestionColumn>{element.question}</CornellQuestionColumn>
+          <CornellAnswerColumn>{element.answer}</CornellAnswerColumn>
+          {element.summary && (
+            <CornellSummary>{element.summary}</CornellSummary>
+          )}
+          {children}
+        </CornellNoteContainer>
+      );
+    default:
+      return <p {...attributes}>{children}</p>;
   }
-
-  editorValue.forEach((node) => {
-    if (node.type === "heading-one") {
-      text += `# ${extractFormattedText(node.children)}\n\n`;
-    } else if (node.type === "heading-two") {
-      text += `## ${extractFormattedText(node.children)}\n\n`;
-    } else if (node.type === "heading-three") {
-      text += `### ${extractFormattedText(node.children)}\n\n`;
-    } else if (node.type === "paragraph") {
-      text += `${extractFormattedText(node.children)}\n\n`;
-    } else if (node.type === "bulleted-list") {
-      node.children.forEach((item) => {
-        text += `• ${extractFormattedText(item.children)}\n`;
-      });
-      text += "\n";
-    } else if (node.type === "numbered-list") {
-      node.children.forEach((item, i) => {
-        text += `${i + 1}. ${extractFormattedText(item.children)}\n`;
-      });
-      text += "\n";
-    } else if (node.type === "block-quote") {
-      text += `> ${extractFormattedText(node.children)}\n\n`;
-    } else if (node.type === "task-item") {
-      text += `${node.checked ? "☑" : "☐"} ${extractFormattedText(
-        node.children
-      )}\n`;
-    }
-  });
-
-  return text;
 };
 
-// Enhanced helper to process markdown in HTML content before capture
-function processMarkdownInHTML(element) {
-  if (!element) return;
-
-  // Process all paragraph and text elements
-  const textContainers = element.querySelectorAll(
-    "p, li, blockquote, h1, h2, h3, span"
-  );
-
-  textContainers.forEach((container) => {
-    // Only process elements with markdown syntax
-    if (
-      !container.innerHTML ||
-      !(
-        container.innerHTML.includes("**") ||
-        container.innerHTML.includes("*") ||
-        container.innerHTML.includes("`")
-      )
-    ) {
-      return;
-    }
-
-    let html = container.innerHTML;
-
-    // Process code blocks first
-    html = html.replace(
-      /`([^`]+)`/g,
-      '<code style="background-color:#f0f0f0;padding:2px 4px;border-radius:3px;font-family:monospace;">$1</code>'
-    );
-
-    // Process bold text
-    html = html.replace(
-      /\*\*([^*]+)\*\*/g,
-      '<strong style="font-weight:bold;">$1</strong>'
-    );
-
-    // Process italic text
-    html = html.replace(
-      /\*([^*]+)\*/g,
-      '<em style="font-style:italic;">$1</em>'
-    );
-
-    // Update the HTML
-    container.innerHTML = html;
-  });
-}
-
-// Simplified PDF Export function with better markdown handling
 const exportToPDF = async (editorRef, editorValue) => {
   try {
     const content = editorRef.current;
@@ -614,21 +650,18 @@ const exportToPDF = async (editorRef, editorValue) => {
       return;
     }
 
-    // Show a loading message
     alert("Preparing PDF export. This may take a moment...");
 
-    // Create a clean container for capture
     const exportContainer = document.createElement("div");
     exportContainer.style.position = "absolute";
     exportContainer.style.top = "-9999px";
     exportContainer.style.left = "-9999px";
-    exportContainer.style.width = "794px"; // A4 width in pixels at 96 DPI
+    exportContainer.style.width = "794px";
     exportContainer.style.backgroundColor = "#ffffff";
     exportContainer.style.padding = "40px";
     exportContainer.style.color = "#000000";
     exportContainer.style.fontFamily = "Arial, sans-serif";
 
-    // Add styles for better PDF rendering
     const styleElement = document.createElement("style");
     styleElement.textContent = `
       * {
@@ -680,131 +713,114 @@ const exportToPDF = async (editorRef, editorValue) => {
         padding-left: 10px !important;
         font-style: italic !important;
       }
+      
+      .cornell-note {
+        display: grid;
+        grid-template-columns: 30% 70%;
+        border: 1px solid #cccccc;
+        margin: 15px 0;
+        page-break-inside: avoid;
+      }
+      .cornell-question {
+        background-color: #f5f5f5;
+        padding: 10px;
+        border-right: 1px solid #cccccc;
+        font-weight: 500;
+      }
+      .cornell-answer {
+        padding: 10px;
+      }
+      .cornell-summary {
+        grid-column: 1 / span 2;
+        border-top: 1px solid #cccccc;
+        padding: 10px;
+        background-color: #f9f9f9;
+        font-style: italic;
+      }
     `;
 
     document.head.appendChild(styleElement);
     document.body.appendChild(exportContainer);
 
     try {
-      // Clone the editor content but only get the editable part
       const editorContent = content.querySelector('[contenteditable="true"]');
       if (!editorContent) {
         throw new Error("Could not find editable content");
       }
 
-      // Clone and clean up the content
       const contentClone = editorContent.cloneNode(true);
 
-      // Apply styles for PDF
       contentClone.style.color = "#000000";
       contentClone.style.backgroundColor = "#ffffff";
       contentClone.style.fontFamily = "Arial, sans-serif";
       contentClone.style.padding = "20px";
       contentClone.style.width = "auto";
 
-      // Process markdown syntax in the HTML content
-      processMarkdownInHTML(contentClone);
+      const cornellElements = contentClone.querySelectorAll(
+        ".cornell-note-container"
+      );
+      cornellElements.forEach((element) => {
+        const cornellDiv = document.createElement("div");
+        cornellDiv.className = "cornell-note";
 
-      // Add additional styling for better appearance
-      const allElements = contentClone.querySelectorAll("*");
-      allElements.forEach((el) => {
-        if (el.tagName === "H1") {
-          Object.assign(el.style, {
-            fontSize: "24px",
-            fontWeight: "bold",
-            marginBottom: "12px",
-            borderBottom: "1px solid #cccccc",
-            paddingBottom: "5px",
-            color: "#000000",
-          });
-        } else if (el.tagName === "H2") {
-          Object.assign(el.style, {
-            fontSize: "20px",
-            fontWeight: "bold",
-            marginTop: "15px",
-            marginBottom: "8px",
-            color: "#000000",
-          });
-        } else if (el.tagName === "H3") {
-          Object.assign(el.style, {
-            fontSize: "16px",
-            fontWeight: "bold",
-            marginTop: "12px",
-            marginBottom: "6px",
-            color: "#000000",
-          });
-        } else if (el.tagName === "P") {
-          Object.assign(el.style, {
-            marginBottom: "8px",
-            lineHeight: "1.5",
-            color: "#000000",
-          });
-        } else if (el.tagName === "UL" || el.tagName === "OL") {
-          Object.assign(el.style, {
-            paddingLeft: "20px",
-            marginBottom: "10px",
-            color: "#000000",
-          });
-        } else if (el.tagName === "LI") {
-          Object.assign(el.style, {
-            marginBottom: "3px",
-            color: "#000000",
-          });
-        } else if (el.tagName === "BLOCKQUOTE") {
-          Object.assign(el.style, {
-            borderLeft: "2px solid #999",
-            paddingLeft: "10px",
-            fontStyle: "italic",
-            color: "#000000",
-          });
-        } else if (el.tagName === "STRONG" || el.style.fontWeight === "bold") {
-          el.style.fontWeight = "bold";
-          el.style.color = "#000000";
-        } else if (el.tagName === "EM" || el.style.fontStyle === "italic") {
-          el.style.fontStyle = "italic";
-          el.style.color = "#000000";
-        } else if (el.tagName === "CODE") {
-          Object.assign(el.style, {
-            fontFamily: "monospace",
-            backgroundColor: "#f0f0f0",
-            padding: "2px 4px",
-            borderRadius: "3px",
-            color: "#000000",
-          });
+        const questionEl = element.querySelector("div:nth-child(1)");
+        const answerEl = element.querySelector("div:nth-child(2)");
+        const summaryEl = element.querySelector("div:nth-child(3)");
+
+        if (questionEl) {
+          const qDiv = document.createElement("div");
+          qDiv.className = "cornell-question";
+          qDiv.innerHTML = questionEl.innerHTML || "";
+          cornellDiv.appendChild(qDiv);
+        } else {
+          const qDiv = document.createElement("div");
+          qDiv.className = "cornell-question";
+          cornellDiv.appendChild(qDiv);
         }
+
+        if (answerEl) {
+          const aDiv = document.createElement("div");
+          aDiv.className = "cornell-answer";
+          aDiv.innerHTML = answerEl.innerHTML || "";
+          cornellDiv.appendChild(aDiv);
+        } else {
+          const aDiv = document.createElement("div");
+          aDiv.className = "cornell-answer";
+          cornellDiv.appendChild(aDiv);
+        }
+
+        if (summaryEl && summaryEl.innerHTML.trim()) {
+          const sDiv = document.createElement("div");
+          sDiv.className = "cornell-summary";
+          sDiv.innerHTML = summaryEl.innerHTML;
+          cornellDiv.appendChild(sDiv);
+        }
+
+        element.parentNode.replaceChild(cornellDiv, element);
       });
 
       exportContainer.innerHTML = "";
       exportContainer.appendChild(contentClone);
 
-      // Create a new jsPDF instance
       const pdf = new jsPDF({
         orientation: "portrait",
         unit: "mm",
         format: "a4",
       });
 
-      // Calculate dimensions
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
 
-      // Split the content into page-sized chunks and create a PDF
-      // We'll measure the actual content height
       const contentHeight = exportContainer.offsetHeight;
-      const pageContentHeight = (pdfHeight - 20) * 3.779527559; // Convert mm to px
+      const pageContentHeight = (pdfHeight - 20) * 3.779527559;
 
-      // Calculate how many pages we need
       const totalPages = Math.ceil(contentHeight / pageContentHeight);
 
-      // Capture each page separately
       for (let page = 0; page < totalPages; page++) {
-        // Update container position to show the current page
         exportContainer.style.top = `-${page * pageContentHeight}px`;
 
-        // Delay to ensure rendering
         await new Promise((resolve) => setTimeout(resolve, 100));
 
-        // Capture the current visible part
         const canvas = await html2canvas(exportContainer, {
           scale: 2,
           logging: false,
@@ -814,22 +830,17 @@ const exportToPDF = async (editorRef, editorValue) => {
           backgroundColor: "#ffffff",
         });
 
-        // Convert canvas to image
         const imgData = canvas.toDataURL("image/png");
 
-        // Add new page if not first page
         if (page > 0) {
           pdf.addPage();
         }
 
-        // Add image to PDF
         pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
       }
 
-      // Save the PDF
       pdf.save("TranscriptX_Notes.pdf");
     } finally {
-      // Clean up
       if (document.body.contains(exportContainer)) {
         document.body.removeChild(exportContainer);
       }
@@ -843,141 +854,12 @@ const exportToPDF = async (editorRef, editorValue) => {
   }
 };
 
-// Define custom elements for the editor
-const Element = ({ attributes, children, element }) => {
-  switch (element.type) {
-    case "heading-one":
-      return <h1 {...attributes}>{children}</h1>;
-    case "heading-two":
-      return <h2 {...attributes}>{children}</h2>;
-    case "heading-three":
-      return <h3 {...attributes}>{children}</h3>;
-    case "bulleted-list":
-      return <ul {...attributes}>{children}</ul>;
-    case "numbered-list":
-      return <ol {...attributes}>{children}</ol>;
-    case "list-item":
-      return <li {...attributes}>{children}</li>;
-    case "block-quote":
-      return <blockquote {...attributes}>{children}</blockquote>;
-    case "task-item":
-      return (
-        <div className="task-list-item" {...attributes}>
-          <input
-            type="checkbox"
-            className="task-checkbox"
-            checked={element.checked || false}
-            onChange={() => {
-              // The checkbox state is managed through the editor
-            }}
-            contentEditable={false}
-          />
-          <span>{children}</span>
-        </div>
-      );
-    default:
-      return <p {...attributes}>{children}</p>;
-  }
-};
-
-// Custom leaf renderer for handling marks like bold, italic, etc.
-const Leaf = ({ attributes, children, leaf }) => {
-  if (leaf.bold) {
-    children = <strong>{children}</strong>;
-  }
-  if (leaf.italic) {
-    children = <em>{children}</em>;
-  }
-  if (leaf.code) {
-    children = <code>{children}</code>;
-  }
-  if (leaf.underline) {
-    children = <u>{children}</u>;
-  }
-
-  return <span {...attributes}>{children}</span>;
-};
-
-// Toolbar button that applies formatting
-const FormatButton = ({ format, icon, blockFormat = false, tooltip }) => {
-  const editor = useSlate();
-
-  const isBlockActive = (editor, format) => {
-    const [match] = Editor.nodes(editor, {
-      match: (n) =>
-        !Editor.isEditor(n) && SlateElement.isElement(n) && n.type === format,
-    });
-    return !!match;
-  };
-
-  const isMarkActive = (editor, format) => {
-    const marks = Editor.marks(editor);
-    return marks ? marks[format] === true : false;
-  };
-
-  const toggleBlock = (editor, format) => {
-    const isActive = isBlockActive(editor, format);
-    const isList = format === "bulleted-list" || format === "numbered-list";
-
-    Transforms.unwrapNodes(editor, {
-      match: (n) =>
-        !Editor.isEditor(n) &&
-        SlateElement.isElement(n) &&
-        ["bulleted-list", "numbered-list"].includes(n.type),
-      split: true,
-    });
-
-    const newType = isActive ? "paragraph" : isList ? "list-item" : format;
-
-    Transforms.setNodes(editor, {
-      type: newType,
-    });
-
-    if (!isActive && isList) {
-      const block = { type: format, children: [] };
-      Transforms.wrapNodes(editor, block);
-    }
-  };
-
-  const toggleMark = (editor, format) => {
-    const isActive = isMarkActive(editor, format);
-
-    if (isActive) {
-      Editor.removeMark(editor, format);
-    } else {
-      Editor.addMark(editor, format, true);
-    }
-  };
-
-  return (
-    <ToolbarButton
-      active={
-        blockFormat
-          ? isBlockActive(editor, format)
-          : isMarkActive(editor, format)
-      }
-      onMouseDown={(event) => {
-        event.preventDefault();
-        if (blockFormat) {
-          toggleBlock(editor, format);
-        } else {
-          toggleMark(editor, format);
-        }
-      }}
-      title={tooltip}
-    >
-      {icon}
-    </ToolbarButton>
-  );
-};
-
 function NotesEditor({ initialValue }) {
   const editor = useMemo(() => withHistory(withReact(createEditor())), []);
   const [editorValue, setEditorValue] = useState(DEFAULT_VALUE);
   const [loading, setLoading] = useState(true);
   const editorRef = React.useRef(null);
 
-  // Update the editor when initialValue changes
   useEffect(() => {
     try {
       setLoading(true);
@@ -1013,7 +895,6 @@ function NotesEditor({ initialValue }) {
     }
   }, [initialValue]);
 
-  // Define a rendering function for custom elements and leafs
   const renderElement = useCallback((props) => <Element {...props} />, []);
   const renderLeaf = useCallback((props) => <Leaf {...props} />, []);
 

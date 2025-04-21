@@ -56,28 +56,55 @@ const RecordingIndicator = styled.div`
   }
 `;
 
-function AudioRecorder({ isRecording, setIsRecording, onTranscriptionUpdate }) {
+const StatusText = styled.div`
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+`;
+
+const RecordingLength = styled.div`
+  font-size: 13px;
+  color: var(--accent-color);
+  margin-left: auto;
+`;
+
+function AudioRecorder({ isRecording, setIsRecording, onAudioRecorded }) {
   const [isPaused, setIsPaused] = useState(false);
-  const {
-    transcript,
-    resetTranscript,
-    listening,
-    browserSupportsSpeechRecognition,
-  } = useSpeechRecognition({
-    commands: [],
-  });
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordingComplete, setRecordingComplete] = useState(false);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const timerRef = useRef(null);
+
+  const { listening, browserSupportsSpeechRecognition } =
+    useSpeechRecognition();
 
   useEffect(() => {
-    if (transcript) {
-      onTranscriptionUpdate(transcript);
+    if (isRecording && !isPaused) {
+      timerRef.current = setInterval(() => {
+        setRecordingTime((prevTime) => prevTime + 1);
+      }, 1000);
+    } else {
+      clearInterval(timerRef.current);
     }
-  }, [transcript, onTranscriptionUpdate]);
+
+    return () => clearInterval(timerRef.current);
+  }, [isRecording, isPaused]);
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
+  };
 
   const startRecording = async () => {
-    resetTranscript();
     try {
+      audioChunksRef.current = [];
+      setRecordingTime(0);
+      setRecordingComplete(false);
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
 
@@ -87,21 +114,24 @@ function AudioRecorder({ isRecording, setIsRecording, onTranscriptionUpdate }) {
         }
       };
 
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/wav",
+        });
+        setRecordingComplete(true);
+
+        onAudioRecorded(audioBlob);
+
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
       mediaRecorderRef.current.start();
-
-      try {
-        await SpeechRecognition.startListening({ continuous: true });
-      } catch (err) {
-        console.error("Speech recognition error:", err);
-        // Continue with recording even if speech recognition fails
-      }
-
       setIsRecording(true);
       setIsPaused(false);
     } catch (error) {
-      console.error("Error accessing microphone:", error);
+      console.error("Error starting recording:", error);
       alert(
-        "Unable to access your microphone. Please check permissions and try again."
+        "Could not access microphone. Please check your browser permissions."
       );
     }
   };
@@ -109,17 +139,6 @@ function AudioRecorder({ isRecording, setIsRecording, onTranscriptionUpdate }) {
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
-      SpeechRecognition.stopListening();
-
-      mediaRecorderRef.current.onstop = () => {
-        // We can save the audio if needed
-        audioChunksRef.current = [];
-      };
-
-      // Stop all tracks on the stream
-      mediaRecorderRef.current.stream
-        .getTracks()
-        .forEach((track) => track.stop());
       setIsRecording(false);
       setIsPaused(false);
     }
@@ -129,12 +148,8 @@ function AudioRecorder({ isRecording, setIsRecording, onTranscriptionUpdate }) {
     if (!isRecording) return;
 
     if (isPaused) {
-      // Resume recording
-      SpeechRecognition.startListening({ continuous: true });
       mediaRecorderRef.current.resume();
     } else {
-      // Pause recording
-      SpeechRecognition.stopListening();
       mediaRecorderRef.current.pause();
     }
 
@@ -148,21 +163,6 @@ function AudioRecorder({ isRecording, setIsRecording, onTranscriptionUpdate }) {
         <div style={{ color: "var(--text-secondary)" }}>
           Your browser doesn't support speech recognition. Try using Chrome.
         </div>
-        <ButtonsContainer>
-          <RecordButton
-            isRecording={isRecording}
-            onClick={isRecording ? stopRecording : startRecording}
-          >
-            {isRecording ? "Stop" : "Record"}
-          </RecordButton>
-          <PauseButton
-            isRecording={isRecording}
-            onClick={togglePause}
-            disabled={!isRecording}
-          >
-            {isPaused ? "Resume" : "Pause"}
-          </PauseButton>
-        </ButtonsContainer>
       </RecorderContainer>
     );
   }
@@ -187,12 +187,19 @@ function AudioRecorder({ isRecording, setIsRecording, onTranscriptionUpdate }) {
       </ButtonsContainer>
 
       <RecordingStatus>
-        <RecordingIndicator isRecording={listening} />
-        {isRecording
-          ? isPaused
-            ? "Recording paused"
-            : "Recording in progress..."
-          : "Ready to record"}
+        <RecordingIndicator isRecording={isRecording && !isPaused} />
+        {isRecording ? (
+          <>
+            <StatusText>
+              {isPaused ? "Recording paused" : "Recording in progress..."}
+            </StatusText>
+            <RecordingLength>{formatTime(recordingTime)}</RecordingLength>
+          </>
+        ) : recordingComplete ? (
+          <StatusText>Recording ready for processing</StatusText>
+        ) : (
+          <StatusText>Ready to record</StatusText>
+        )}
       </RecordingStatus>
     </RecorderContainer>
   );
