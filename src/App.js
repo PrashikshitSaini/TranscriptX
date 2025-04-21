@@ -27,10 +27,26 @@ function AppContent() {
   );
   // Track if usage was counted for current session
   const [usageCounted, setUsageCounted] = useState(false);
+  // Store current transcription to avoid retranscribing the same audio
+  const [currentTranscription, setCurrentTranscription] = useState("");
+  // Store current audio fingerprint to track when audio changes
+  const [currentAudioFingerprint, setCurrentAudioFingerprint] = useState("");
 
-  // Reset usage counted flag when audio changes
+  // Reset transcription when audio changes
   useEffect(() => {
-    setUsageCounted(false);
+    // Create a fingerprint of the current audio selection
+    const newFingerprint = audioFile
+      ? `file-${audioFile.name}-${audioFile.size}`
+      : recordedAudio
+      ? `recorded-${recordedAudio.size}-${new Date().getTime()}`
+      : "";
+
+    // If audio has changed, reset the transcription
+    if (newFingerprint !== currentAudioFingerprint && newFingerprint !== "") {
+      setCurrentTranscription("");
+      setCurrentAudioFingerprint(newFingerprint);
+      setUsageCounted(false);
+    }
   }, [audioFile, recordedAudio]);
 
   const handleFileSelected = (file) => {
@@ -63,18 +79,28 @@ function AppContent() {
     setShowEditor(false);
 
     try {
-      // Step 1: Transcribe the audio (file or recording)
-      let transcription;
-      if (audioFile) {
-        // Transcribe the uploaded file
-        transcription = await transcribeAudioFile(audioFile);
-      } else if (recordedAudio) {
-        // Transcribe the recorded audio
-        transcription = await transcribeAudioFile(recordedAudio);
-      }
+      // Step 1: Check if we already have a transcription for this audio
+      let transcription = currentTranscription;
+      let isNewTranscription = false;
 
       if (!transcription || transcription.trim() === "") {
-        throw new Error("Failed to transcribe audio");
+        // Only transcribe if we don't already have a transcription for this audio
+        isNewTranscription = true;
+
+        if (audioFile) {
+          // Transcribe the uploaded file
+          transcription = await transcribeAudioFile(audioFile);
+        } else if (recordedAudio) {
+          // Transcribe the recorded audio
+          transcription = await transcribeAudioFile(recordedAudio);
+        }
+
+        if (!transcription || transcription.trim() === "") {
+          throw new Error("Failed to transcribe audio");
+        }
+
+        // Save the transcription for future use
+        setCurrentTranscription(transcription);
       }
 
       // Step 2: Generate notes from the transcription using the custom prompt
@@ -91,11 +117,13 @@ function AppContent() {
       setGeneratedNotes(notes);
       setShowEditor(true);
 
-      // Only increment usage if not already counted for this session
-      if (!usageCounted) {
-        console.log("Incrementing usage count - successful generation");
+      // Only increment usage if this is a new transcription and not already counted
+      if (isNewTranscription && !usageCounted) {
+        console.log("Incrementing usage count - new transcription");
         await incrementUsage();
         setUsageCounted(true);
+      } else {
+        console.log("Skipping usage count - using cached transcription");
       }
     } catch (error) {
       console.error("Error generating notes:", error);
@@ -154,6 +182,11 @@ function AppContent() {
           >
             {isProcessing ? "Processing..." : "Generate Notes"}
           </button>
+          {currentTranscription && (
+            <p className="transcription-info">
+              Format changes won't count as new usage.
+            </p>
+          )}
           {error && <div className="error-message">{error}</div>}
         </div>
         <div className="main-content">
@@ -168,6 +201,11 @@ function AppContent() {
               </p>
               {(audioFile || recordedAudio) && (
                 <p className="ready-message">✓ Audio ready for processing</p>
+              )}
+              {currentTranscription && (
+                <p className="ready-message">
+                  ✓ Transcription already available
+                </p>
               )}
             </div>
           )}
