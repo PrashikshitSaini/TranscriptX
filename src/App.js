@@ -49,6 +49,20 @@ function AppContent() {
     }
   }, [audioFile, recordedAudio]);
 
+  // Add useEffect for mobile detection
+  useEffect(() => {
+    // Check if this is a mobile device
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      // Show mobile-specific instructions
+      setTimeout(() => {
+        alert(
+          "To use the audio recording feature on mobile devices, please:\n\n• Ensure your browser has microphone permissions\n• For iOS: Use Safari for best compatibility\n• For Android: Use Chrome or Firefox\n\nIf recording doesn't work, try using the file upload option instead."
+        );
+      }, 1000);
+    }
+  }, []);
+
   const handleFileSelected = (file) => {
     setAudioFile(file);
     setRecordedAudio(null); // Clear any recorded audio when a file is uploaded
