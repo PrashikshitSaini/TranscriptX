@@ -9,6 +9,36 @@ TranscriptX is a web application that helps you record, transcribe, and generate
 - Upload audio files for transcription
 - AI-powered note generation from transcriptions
 - Notion-style editable notes
+- Export notes to PDF
+- Support for tables and mathematical formulas (LaTeX)
+- Customizable note generation prompts
+- Secure user authentication
+- Usage tracking
+- **Pro Feature:** Speaker Identification (Diarization)
+
+## Pricing
+
+**Ready to unlock peak productivity? Choose the TranscriptX plan that fits your needs!**
+
+**🚀 Free Tier:**
+
+- **20 Generations:** Perfect for trying out TranscriptX and handling occasional tasks. Get a taste of AI-powered note-taking!
+
+**✨ Monthly Pro - $4.99/month ✨**
+
+- **50 Generations:** Ideal for students, professionals, and regular users who need consistent note-taking power.
+- **Speaker Identification:** Know who said what in multi-speaker audio.
+- Priority Support.
+- Access to future premium features first!
+
+**⭐ Yearly Pro - $50/year (Best Value! Save ~17%) ⭐**
+
+- **800 Generations:** The ultimate plan for power users, researchers, and teams. Maximize your efficiency and never worry about limits.
+- **Speaker Identification:** Know who said what in multi-speaker audio.
+- All benefits of Monthly Pro.
+- **Significant savings** – like getting 2 months free!
+
+_(Note: Payment processing and Pro user status detection are not yet implemented in this version. Stay tuned!)_
 
 ## How to Use TranscriptX
 

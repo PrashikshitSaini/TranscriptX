@@ -6,8 +6,10 @@ import {
   Transforms,
   Element as SlateElement,
   Text,
+  Node,
+  Range,
 } from "slate";
-import { Slate, Editable, withReact, useSlate } from "slate-react";
+import { Slate, Editable, withReact, useSlate, ReactEditor } from "slate-react";
 import { withHistory } from "slate-history";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
@@ -19,8 +21,12 @@ import {
   FaQuoteRight,
   FaListUl,
   FaListOl,
+  FaTable,
+  FaSquareRootAlt,
 } from "react-icons/fa";
 import { BiHeading } from "react-icons/bi";
+import "katex/dist/katex.min.css";
+import katex from "katex";
 
 const EditorContainer = styled.div`
   background-color: var(--bg-secondary);
@@ -215,6 +221,116 @@ const CornellSummary = styled.div`
   font-style: italic;
 `;
 
+const StyledTable = styled.table`
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+
+  td,
+  th {
+    border: 1px solid var(--bg-tertiary);
+    padding: 8px;
+    text-align: left;
+  }
+
+  th {
+    background-color: var(--bg-tertiary);
+    font-weight: bold;
+  }
+
+  tr:nth-child(even) {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+`;
+
+const MathWrapper = styled.div`
+  padding: 8px;
+  margin: 8px 0;
+  background-color: rgba(66, 133, 244, 0.05);
+  border-radius: 4px;
+  overflow-x: auto;
+
+  &.display-mode {
+    text-align: center;
+  }
+`;
+
+const ModalOverlay = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+`;
+
+const Modal = styled.div`
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 20px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+`;
+
+const ModalHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--bg-tertiary);
+  padding-bottom: 12px;
+`;
+
+const ModalTitle = styled.h3`
+  margin: 0;
+  color: var(--text-primary);
+`;
+
+const ModalCloseButton = styled.button`
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+`;
+
+const FormGroup = styled.div`
+  margin-bottom: 16px;
+`;
+
+const Label = styled.label`
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: var(--text-primary);
+`;
+
+const Input = styled.input`
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--bg-tertiary);
+  border-radius: 4px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+`;
+
+const ButtonRow = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+`;
+
 const DEFAULT_VALUE = [
   {
     type: "heading-one",
@@ -307,293 +423,16 @@ const FormatButton = ({ format, icon, blockFormat = false, tooltip }) => {
   );
 };
 
-const deserialize = (content) => {
-  if (!content || typeof content !== "string" || content.trim() === "") {
-    return DEFAULT_VALUE;
-  }
-
+const renderMath = (latex, displayMode = false) => {
   try {
-    const normalizedContent = content.replace(/\r\n/g, "\n");
-    const lines = normalizedContent.split("\n");
-    const nodes = [];
-    let currentList = null;
-    let i = 0;
-
-    const hasCornellFormat = lines.some(
-      (line) =>
-        line.includes("||") ||
-        (line.includes("Question") && line.includes("Answer")) ||
-        (line.includes("Cue") && line.includes("Note"))
-    );
-
-    if (hasCornellFormat) {
-      let cornellNotes = [];
-      let inSummary = false;
-
-      while (i < lines.length) {
-        const line = lines[i].trim();
-
-        if (line === "") {
-          i++;
-          continue;
-        }
-
-        if (line.toLowerCase().includes("summary") && !line.includes("||")) {
-          inSummary = true;
-          i++;
-          continue;
-        }
-
-        if (line.includes("||")) {
-          const [question, answer] = line
-            .split("||")
-            .map((part) => part.trim());
-
-          cornellNotes.push({
-            type: "cornell-note",
-            question: question || "",
-            answer: answer || "",
-            summary: "",
-            children: [{ text: "" }],
-          });
-        } else if (inSummary) {
-          if (
-            cornellNotes.length > 0 &&
-            cornellNotes[cornellNotes.length - 1].type === "cornell-note"
-          ) {
-            const lastNote = cornellNotes[cornellNotes.length - 1];
-            lastNote.summary = (lastNote.summary + " " + line).trim();
-          }
-        } else {
-          if (line.startsWith("# ")) {
-            nodes.push({
-              type: "heading-one",
-              children: [{ text: line.substring(2) }],
-            });
-          } else if (
-            !line.includes("Question") &&
-            !line.includes("Answer") &&
-            !line.includes("Cue") &&
-            !line.includes("Note")
-          ) {
-            nodes.push({
-              type: "paragraph",
-              children: [{ text: line }],
-            });
-          }
-        }
-
-        i++;
-      }
-
-      if (cornellNotes.length > 0) {
-        nodes.push(...cornellNotes);
-      }
-    } else {
-      while (i < lines.length) {
-        let line = lines[i].trim();
-
-        if (line === "") {
-          if (currentList) {
-            nodes.push(currentList);
-            currentList = null;
-          }
-          i++;
-          continue;
-        }
-
-        if (line.startsWith("# ")) {
-          if (currentList) {
-            nodes.push(currentList);
-            currentList = null;
-          }
-
-          const headingText = line.substring(2);
-          nodes.push({
-            type: "heading-one",
-            children: [{ text: headingText }],
-          });
-          i++;
-        } else if (line.startsWith("## ")) {
-          if (currentList) {
-            nodes.push(currentList);
-            currentList = null;
-          }
-
-          const headingText = line.substring(3);
-          nodes.push({
-            type: "heading-two",
-            children: [{ text: headingText }],
-          });
-          i++;
-        } else if (line.startsWith("### ")) {
-          if (currentList) {
-            nodes.push(currentList);
-            currentList = null;
-          }
-
-          const headingText = line.substring(4);
-          nodes.push({
-            type: "heading-three",
-            children: [{ text: headingText }],
-          });
-          i++;
-        } else if (line.startsWith("- ") || line.startsWith("* ")) {
-          const listItemText = line.substring(2);
-
-          const formattedText = processTextFormatting(listItemText);
-
-          const listItem = {
-            type: "list-item",
-            children: formattedText,
-          };
-
-          if (!currentList) {
-            currentList = {
-              type: "bulleted-list",
-              children: [listItem],
-            };
-          } else if (currentList.type === "bulleted-list") {
-            currentList.children.push(listItem);
-          } else {
-            nodes.push(currentList);
-            currentList = {
-              type: "bulleted-list",
-              children: [listItem],
-            };
-          }
-          i++;
-        } else if (/^\d+\.\s/.test(line)) {
-          const listItemText = line.substring(line.indexOf(".") + 2);
-
-          const formattedText = processTextFormatting(listItemText);
-
-          const listItem = {
-            type: "list-item",
-            children: formattedText,
-          };
-
-          if (!currentList) {
-            currentList = {
-              type: "numbered-list",
-              children: [listItem],
-            };
-          } else if (currentList.type === "numbered-list") {
-            currentList.children.push(listItem);
-          } else {
-            nodes.push(currentList);
-            currentList = {
-              type: "numbered-list",
-              children: [listItem],
-            };
-          }
-          i++;
-        } else if (line.startsWith("> ")) {
-          if (currentList) {
-            nodes.push(currentList);
-            currentList = null;
-          }
-
-          const quoteText = line.substring(2);
-          const formattedText = processTextFormatting(quoteText);
-
-          nodes.push({
-            type: "block-quote",
-            children: formattedText,
-          });
-          i++;
-        } else if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
-          if (currentList) {
-            nodes.push(currentList);
-            currentList = null;
-          }
-
-          const isChecked = line.startsWith("- [x] ");
-          const taskText = line.substring(6);
-          const formattedText = processTextFormatting(taskText);
-
-          nodes.push({
-            type: "task-item",
-            checked: isChecked,
-            children: formattedText,
-          });
-          i++;
-        } else {
-          if (currentList) {
-            nodes.push(currentList);
-            currentList = null;
-          }
-
-          const formattedText = processTextFormatting(line);
-
-          nodes.push({
-            type: "paragraph",
-            children: formattedText,
-          });
-          i++;
-        }
-      }
-
-      if (currentList) {
-        nodes.push(currentList);
-      }
-    }
-
-    return nodes.length > 0 ? nodes : DEFAULT_VALUE;
+    return katex.renderToString(latex, {
+      throwOnError: false,
+      displayMode: displayMode,
+    });
   } catch (error) {
-    console.error("Error parsing content for Slate editor:", error);
-    return DEFAULT_VALUE;
+    console.error("Error rendering LaTeX:", error);
+    return latex;
   }
-};
-
-const processTextFormatting = (text) => {
-  let children = [];
-
-  if (text.includes("**") || text.includes("*") || text.includes("`")) {
-    let segments = [];
-    let currentIndex = 0;
-
-    const boldRegex = /\*\*(.*?)\*\*/g;
-    let boldMatch;
-    while ((boldMatch = boldRegex.exec(text)) !== null) {
-      if (boldMatch.index > currentIndex) {
-        segments.push({
-          text: text.substring(currentIndex, boldMatch.index),
-          format: null,
-        });
-      }
-
-      segments.push({
-        text: boldMatch[1],
-        format: "bold",
-      });
-
-      currentIndex = boldMatch.index + boldMatch[0].length;
-    }
-
-    if (currentIndex < text.length) {
-      segments.push({
-        text: text.substring(currentIndex),
-        format: null,
-      });
-    }
-
-    if (segments.length === 0) {
-      children.push({ text });
-    } else {
-      segments.forEach((segment) => {
-        if (segment.format === "bold") {
-          children.push({ text: segment.text, bold: true });
-        } else {
-          children.push({ text: segment.text });
-        }
-      });
-    }
-  } else {
-    children.push({ text });
-  }
-
-  return children.length > 0 ? children : [{ text }];
 };
 
 const Element = ({ attributes, children, element }) => {
@@ -636,8 +475,731 @@ const Element = ({ attributes, children, element }) => {
           {children}
         </CornellNoteContainer>
       );
+    case "table":
+      return (
+        <StyledTable {...attributes}>
+          <tbody>{children}</tbody>
+        </StyledTable>
+      );
+    case "table-row":
+      return <tr {...attributes}>{children}</tr>;
+    case "table-cell":
+      return <td {...attributes}>{children}</td>;
+    case "table-header":
+      return <th {...attributes}>{children}</th>;
+    case "math":
+      return (
+        <MathWrapper
+          {...attributes}
+          className={element.displayMode ? "display-mode" : ""}
+          dangerouslySetInnerHTML={{
+            __html: renderMath(element.formula, element.displayMode),
+          }}
+        >
+          {children}
+        </MathWrapper>
+      );
     default:
       return <p {...attributes}>{children}</p>;
+  }
+};
+
+const TableButton = ({ editor }) => {
+  const [showModal, setShowModal] = useState(false);
+  const [rows, setRows] = useState(3);
+  const [columns, setColumns] = useState(3);
+
+  const insertTable = () => {
+    if (rows < 1 || columns < 1) return;
+
+    const table = {
+      type: "table",
+      children: Array.from({ length: rows }).map((_, row) => ({
+        type: "table-row",
+        children: Array.from({ length: columns }).map((_, col) => ({
+          type: row === 0 ? "table-header" : "table-cell",
+          children: [{ text: "" }],
+        })),
+      })),
+    };
+
+    Transforms.insertNodes(editor, table);
+    setShowModal(false);
+  };
+
+  return (
+    <>
+      <ToolbarButton onClick={() => setShowModal(true)} title="Insert Table">
+        <FaTable />
+      </ToolbarButton>
+
+      {showModal && (
+        <ModalOverlay>
+          <Modal>
+            <ModalHeader>
+              <ModalTitle>Insert Table</ModalTitle>
+              <ModalCloseButton onClick={() => setShowModal(false)}>
+                ×
+              </ModalCloseButton>
+            </ModalHeader>
+
+            <FormGroup>
+              <Label>Rows:</Label>
+              <Input
+                type="number"
+                min="1"
+                max="20"
+                value={rows}
+                onChange={(e) => setRows(parseInt(e.target.value) || 1)}
+              />
+            </FormGroup>
+
+            <FormGroup>
+              <Label>Columns:</Label>
+              <Input
+                type="number"
+                min="1"
+                max="10"
+                value={columns}
+                onChange={(e) => setColumns(parseInt(e.target.value) || 1)}
+              />
+            </FormGroup>
+
+            <ButtonRow>
+              <button onClick={() => setShowModal(false)}>Cancel</button>
+              <button
+                style={{
+                  backgroundColor: "var(--accent-color)",
+                  color: "white",
+                }}
+                onClick={insertTable}
+              >
+                Insert
+              </button>
+            </ButtonRow>
+          </Modal>
+        </ModalOverlay>
+      )}
+    </>
+  );
+};
+
+const MathButton = ({ editor }) => {
+  const [showModal, setShowModal] = useState(false);
+  const [formula, setFormula] = useState("\\frac{a}{b} + c^2");
+  const [displayMode, setDisplayMode] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState("");
+
+  useEffect(() => {
+    try {
+      const html = katex.renderToString(formula, {
+        throwOnError: false,
+        displayMode,
+      });
+      setPreviewHtml(html);
+    } catch (err) {
+      setPreviewHtml(
+        `<span style="color: var(--danger-color)">Error: ${err.message}</span>`
+      );
+    }
+  }, [formula, displayMode]);
+
+  const insertMath = () => {
+    const mathNode = {
+      type: "math",
+      formula,
+      displayMode,
+      children: [{ text: "" }],
+    };
+    Transforms.insertNodes(editor, mathNode);
+    setShowModal(false);
+  };
+
+  return (
+    <>
+      <ToolbarButton
+        onClick={() => setShowModal(true)}
+        title="Insert Math Formula"
+      >
+        <FaSquareRootAlt />
+      </ToolbarButton>
+
+      {showModal && (
+        <ModalOverlay>
+          <Modal>
+            <ModalHeader>
+              <ModalTitle>Insert Math Formula</ModalTitle>
+              <ModalCloseButton onClick={() => setShowModal(false)}>
+                ×
+              </ModalCloseButton>
+            </ModalHeader>
+
+            <FormGroup>
+              <Label>LaTeX Formula:</Label>
+              <Input
+                value={formula}
+                onChange={(e) => setFormula(e.target.value)}
+                placeholder="Enter LaTeX formula (e.g. \\frac{a}{b})"
+              />
+            </FormGroup>
+
+            <FormGroup>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={displayMode}
+                  onChange={(e) => setDisplayMode(e.target.checked)}
+                />{" "}
+                Display mode (centered, larger)
+              </label>
+            </FormGroup>
+
+            <FormGroup>
+              <Label>Preview:</Label>
+              <div
+                style={{
+                  padding: "10px",
+                  backgroundColor: "var(--bg-tertiary)",
+                  borderRadius: "4px",
+                  minHeight: "60px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: displayMode ? "center" : "flex-start",
+                }}
+                dangerouslySetInnerHTML={{ __html: previewHtml }}
+              />
+            </FormGroup>
+
+            <ButtonRow>
+              <button onClick={() => setShowModal(false)}>Cancel</button>
+              <button
+                style={{
+                  backgroundColor: "var(--accent-color)",
+                  color: "white",
+                }}
+                onClick={insertMath}
+              >
+                Insert
+              </button>
+            </ButtonRow>
+          </Modal>
+        </ModalOverlay>
+      )}
+    </>
+  );
+};
+
+const processTextFormatting = (text) => {
+  let children = [];
+
+  // Process markdown-style formatting
+  if (
+    text.includes("**") ||
+    text.includes("*") ||
+    text.includes("`") ||
+    text.includes("__")
+  ) {
+    let segments = [];
+    let currentIndex = 0;
+
+    // Process bold (either **bold** or __bold__)
+    const boldRegex = /(\*\*|__)(.*?)(\*\*|__)/g;
+    let boldMatch;
+    while ((boldMatch = boldRegex.exec(text)) !== null) {
+      if (boldMatch.index > currentIndex) {
+        segments.push({
+          text: text.substring(currentIndex, boldMatch.index),
+          format: null,
+        });
+      }
+
+      segments.push({
+        text: boldMatch[2],
+        format: "bold",
+      });
+
+      currentIndex = boldMatch.index + boldMatch[0].length;
+    }
+
+    // Process italic (either *italic* or _italic_)
+    if (segments.length === 0) {
+      const italicRegex = /(\*|_)(.*?)(\*|_)/g;
+      let italicMatch;
+      while ((italicMatch = italicRegex.exec(text)) !== null) {
+        if (italicMatch.index > currentIndex) {
+          segments.push({
+            text: text.substring(currentIndex, italicMatch.index),
+            format: null,
+          });
+        }
+
+        segments.push({
+          text: italicMatch[2],
+          format: "italic",
+        });
+
+        currentIndex = italicMatch.index + italicMatch[0].length;
+      }
+    }
+
+    // Process inline code
+    if (segments.length === 0) {
+      const codeRegex = /`(.*?)`/g;
+      let codeMatch;
+      while ((codeMatch = codeRegex.exec(text)) !== null) {
+        if (codeMatch.index > currentIndex) {
+          segments.push({
+            text: text.substring(currentIndex, codeMatch.index),
+            format: null,
+          });
+        }
+
+        segments.push({
+          text: codeMatch[1],
+          format: "code",
+        });
+
+        currentIndex = codeMatch.index + codeMatch[0].length;
+      }
+    }
+
+    // Add any remaining text
+    if (currentIndex < text.length) {
+      segments.push({
+        text: text.substring(currentIndex),
+        format: null,
+      });
+    }
+
+    // Convert segments to Slate format
+    if (segments.length === 0) {
+      children.push({ text });
+    } else {
+      segments.forEach((segment) => {
+        if (segment.format === "bold") {
+          children.push({ text: segment.text, bold: true });
+        } else if (segment.format === "italic") {
+          children.push({ text: segment.text, italic: true });
+        } else if (segment.format === "code") {
+          children.push({ text: segment.text, code: true });
+        } else {
+          children.push({ text: segment.text });
+        }
+      });
+    }
+  } else {
+    children.push({ text });
+  }
+
+  return children.length > 0 ? children : [{ text }];
+};
+
+const deserialize = (content) => {
+  if (!content || typeof content !== "string" || content.trim() === "") {
+    return DEFAULT_VALUE;
+  }
+
+  try {
+    const tablePattern = /\|(.*)\|\n\|([-:]+\|)+\n((?:\|.*\|\n)+)/g;
+    content = content.replace(
+      tablePattern,
+      (match, headerRow, separator, bodyRows) => {
+        const headers = headerRow
+          .split("|")
+          .filter((cell) => cell.trim() !== "")
+          .map((h) => h.trim());
+        const rows = bodyRows
+          .split("\n")
+          .filter((row) => row.trim() !== "" && row.includes("|"));
+
+        let tableMarkup = "\n<table>\n<tr>";
+        headers.forEach((header) => {
+          tableMarkup += `<th>${header}</th>`;
+        });
+        tableMarkup += "</tr>\n";
+
+        rows.forEach((row) => {
+          const cells = row
+            .split("|")
+            .filter((cell) => cell.trim() !== "")
+            .map((c) => c.trim());
+          tableMarkup += "<tr>";
+          cells.forEach((cell) => {
+            tableMarkup += `<td>${cell}</td>`;
+          });
+          tableMarkup += "</tr>\n";
+        });
+
+        tableMarkup += "</table>\n";
+        return tableMarkup;
+      }
+    );
+
+    content = content.replace(/\$([^$\n]+?)\$/g, "<math inline>$1</math>");
+    content = content.replace(/\$\$([^$]+?)\$\$/g, "<math display>$1</math>");
+
+    const normalizedContent = content.replace(/\r\n/g, "\n");
+    const lines = normalizedContent.split("\n");
+    const nodes = [];
+    let currentList = null;
+    let i = 0;
+
+    const hasExtendedFormatting =
+      content.includes("<table>") || content.includes("<math");
+
+    if (hasExtendedFormatting) {
+      let currentIndex = 0;
+      let currentText = "";
+
+      while (currentIndex < content.length) {
+        if (content.indexOf("<table>", currentIndex) === currentIndex) {
+          if (currentText.trim()) {
+            const textLines = currentText.trim().split("\n");
+            textLines.forEach((line) => {
+              if (line.trim()) {
+                nodes.push({
+                  type: "paragraph",
+                  children: [{ text: line.trim() }],
+                });
+              }
+            });
+            currentText = "";
+          }
+
+          const tableEnd = content.indexOf("</table>", currentIndex);
+          if (tableEnd !== -1) {
+            const tableContent = content.substring(currentIndex + 7, tableEnd);
+
+            const rows = tableContent.match(/<tr>(.*?)<\/tr>/gs);
+            if (rows) {
+              const tableRows = [];
+
+              rows.forEach((row) => {
+                const headerCells = row.match(/<th>(.*?)<\/th>/gs);
+                const dataCells = row.match(/<td>(.*?)<\/td>/gs);
+
+                if (headerCells) {
+                  const rowCells = [];
+                  headerCells.forEach((cell) => {
+                    const cellContent = cell.replace(/<th>|<\/th>/g, "");
+                    rowCells.push({
+                      type: "table-header",
+                      children: [{ text: cellContent.trim() }],
+                    });
+                  });
+
+                  tableRows.push({
+                    type: "table-row",
+                    children: rowCells,
+                  });
+                } else if (dataCells) {
+                  const rowCells = [];
+                  dataCells.forEach((cell) => {
+                    const cellContent = cell.replace(/<td>|<\/td>/g, "");
+                    rowCells.push({
+                      type: "table-cell",
+                      children: [{ text: cellContent.trim() }],
+                    });
+                  });
+
+                  tableRows.push({
+                    type: "table-row",
+                    children: rowCells,
+                  });
+                }
+              });
+
+              nodes.push({
+                type: "table",
+                children: tableRows,
+              });
+            }
+
+            currentIndex = tableEnd + 8;
+          } else {
+            currentText += "<table>";
+            currentIndex += 7;
+          }
+        } else if (content.indexOf("<math", currentIndex) === currentIndex) {
+          if (currentText.trim()) {
+            const textLines = currentText.trim().split("\n");
+            textLines.forEach((line) => {
+              if (line.trim()) {
+                nodes.push({
+                  type: "paragraph",
+                  children: [{ text: line.trim() }],
+                });
+              }
+            });
+            currentText = "";
+          }
+
+          const isDisplay =
+            content.indexOf("<math display>", currentIndex) === currentIndex;
+          const mathTag = isDisplay ? "<math display>" : "<math inline>";
+          const mathEnd = content.indexOf("</math>", currentIndex);
+
+          if (mathEnd !== -1) {
+            const formula = content.substring(
+              currentIndex + mathTag.length,
+              mathEnd
+            );
+
+            nodes.push({
+              type: "math",
+              formula: formula.trim(),
+              displayMode: isDisplay,
+              children: [{ text: "" }],
+            });
+
+            currentIndex = mathEnd + 7;
+          } else {
+            currentText += mathTag;
+            currentIndex += mathTag.length;
+          }
+        } else {
+          currentText += content[currentIndex];
+          currentIndex++;
+        }
+      }
+
+      if (currentText.trim()) {
+        const textLines = currentText.trim().split("\n");
+        textLines.forEach((line) => {
+          if (line.trim()) {
+            nodes.push({
+              type: "paragraph",
+              children: [{ text: line.trim() }],
+            });
+          }
+        });
+      }
+    } else {
+      const hasCornellFormat = lines.some(
+        (line) =>
+          line.includes("||") ||
+          (line.includes("Question") && line.includes("Answer")) ||
+          (line.includes("Cue") && line.includes("Note"))
+      );
+
+      if (hasCornellFormat) {
+        let cornellNotes = [];
+        let inSummary = false;
+
+        while (i < lines.length) {
+          const line = lines[i].trim();
+
+          if (line === "") {
+            i++;
+            continue;
+          }
+
+          if (line.toLowerCase().includes("summary") && !line.includes("||")) {
+            inSummary = true;
+            i++;
+            continue;
+          }
+
+          if (line.includes("||")) {
+            const [question, answer] = line
+              .split("||")
+              .map((part) => part.trim());
+
+            cornellNotes.push({
+              type: "cornell-note",
+              question: question || "",
+              answer: answer || "",
+              summary: "",
+              children: [{ text: "" }],
+            });
+          } else if (inSummary) {
+            if (
+              cornellNotes.length > 0 &&
+              cornellNotes[cornellNotes.length - 1].type === "cornell-note"
+            ) {
+              const lastNote = cornellNotes[cornellNotes.length - 1];
+              lastNote.summary = (lastNote.summary + " " + line).trim();
+            }
+          } else {
+            if (line.startsWith("# ")) {
+              nodes.push({
+                type: "heading-one",
+                children: [{ text: line.substring(2) }],
+              });
+            } else if (
+              !line.includes("Question") &&
+              !line.includes("Answer") &&
+              !line.includes("Cue") &&
+              !line.includes("Note")
+            ) {
+              nodes.push({
+                type: "paragraph",
+                children: [{ text: line }],
+              });
+            }
+          }
+
+          i++;
+        }
+
+        if (cornellNotes.length > 0) {
+          nodes.push(...cornellNotes);
+        }
+      } else {
+        while (i < lines.length) {
+          let line = lines[i].trim();
+
+          if (line === "") {
+            if (currentList) {
+              nodes.push(currentList);
+              currentList = null;
+            }
+            i++;
+            continue;
+          }
+
+          if (line.startsWith("# ")) {
+            if (currentList) {
+              nodes.push(currentList);
+              currentList = null;
+            }
+
+            const headingText = line.substring(2);
+            nodes.push({
+              type: "heading-one",
+              children: [{ text: headingText }],
+            });
+            i++;
+          } else if (line.startsWith("## ")) {
+            if (currentList) {
+              nodes.push(currentList);
+              currentList = null;
+            }
+
+            const headingText = line.substring(3);
+            nodes.push({
+              type: "heading-two",
+              children: [{ text: headingText }],
+            });
+            i++;
+          } else if (line.startsWith("### ")) {
+            if (currentList) {
+              nodes.push(currentList);
+              currentList = null;
+            }
+
+            const headingText = line.substring(4);
+            nodes.push({
+              type: "heading-three",
+              children: [{ text: headingText }],
+            });
+            i++;
+          } else if (line.startsWith("- ") || line.startsWith("* ")) {
+            const listItemText = line.substring(2);
+
+            const formattedText = processTextFormatting(listItemText);
+
+            const listItem = {
+              type: "list-item",
+              children: formattedText,
+            };
+
+            if (!currentList) {
+              currentList = {
+                type: "bulleted-list",
+                children: [listItem],
+              };
+            } else if (currentList.type === "bulleted-list") {
+              currentList.children.push(listItem);
+            } else {
+              nodes.push(currentList);
+              currentList = {
+                type: "bulleted-list",
+                children: [listItem],
+              };
+            }
+            i++;
+          } else if (/^\d+\.\s/.test(line)) {
+            const listItemText = line.substring(line.indexOf(".") + 2);
+
+            const formattedText = processTextFormatting(listItemText);
+
+            const listItem = {
+              type: "list-item",
+              children: formattedText,
+            };
+
+            if (!currentList) {
+              currentList = {
+                type: "numbered-list",
+                children: [listItem],
+              };
+            } else if (currentList.type === "numbered-list") {
+              currentList.children.push(listItem);
+            } else {
+              nodes.push(currentList);
+              currentList = {
+                type: "numbered-list",
+                children: [listItem],
+              };
+            }
+            i++;
+          } else if (line.startsWith("> ")) {
+            if (currentList) {
+              nodes.push(currentList);
+              currentList = null;
+            }
+
+            const quoteText = line.substring(2);
+            const formattedText = processTextFormatting(quoteText);
+
+            nodes.push({
+              type: "block-quote",
+              children: formattedText,
+            });
+            i++;
+          } else if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
+            if (currentList) {
+              nodes.push(currentList);
+              currentList = null;
+            }
+
+            const isChecked = line.startsWith("- [x] ");
+            const taskText = line.substring(6);
+            const formattedText = processTextFormatting(taskText);
+
+            nodes.push({
+              type: "task-item",
+              checked: isChecked,
+              children: formattedText,
+            });
+            i++;
+          } else {
+            if (currentList) {
+              nodes.push(currentList);
+              currentList = null;
+            }
+
+            const formattedText = processTextFormatting(line);
+
+            nodes.push({
+              type: "paragraph",
+              children: formattedText,
+            });
+            i++;
+          }
+        }
+
+        if (currentList) {
+          nodes.push(currentList);
+        }
+      }
+    }
+
+    return nodes.length > 0 ? nodes : DEFAULT_VALUE;
+  } catch (error) {
+    console.error("Error parsing content for Slate editor:", error);
+    return DEFAULT_VALUE;
   }
 };
 
@@ -714,6 +1276,36 @@ const exportToPDF = async (editorRef, editorValue) => {
         font-style: italic !important;
       }
       
+      table {
+        border-collapse: collapse !important;
+        width: 100% !important;
+        margin: 12px 0 !important;
+      }
+      
+      td, th {
+        border: 1px solid #cccccc !important;
+        padding: 8px !important;
+        text-align: left !important;
+      }
+      
+      th {
+        background-color: #f5f5f5 !important;
+        font-weight: bold !important;
+      }
+      
+      tr:nth-child(even) {
+        background-color: #fafafa !important;
+      }
+      
+      .math-wrapper {
+        padding: 8px !important;
+        margin: 8px 0 !important;
+      }
+      
+      .math-wrapper.display-mode {
+        text-align: center !important;
+      }
+      
       .cornell-note {
         display: grid;
         grid-template-columns: 30% 70%;
@@ -755,6 +1347,35 @@ const exportToPDF = async (editorRef, editorValue) => {
       contentClone.style.fontFamily = "Arial, sans-serif";
       contentClone.style.padding = "20px";
       contentClone.style.width = "auto";
+
+      const tables = contentClone.querySelectorAll("table");
+      tables.forEach((table) => {
+        table.setAttribute("border", "1");
+        table.style.borderCollapse = "collapse";
+        table.style.width = "100%";
+        table.style.marginBottom = "15px";
+
+        const cells = table.querySelectorAll("td, th");
+        cells.forEach((cell) => {
+          cell.style.border = "1px solid #cccccc";
+          cell.style.padding = "8px";
+
+          if (cell.tagName === "TH") {
+            cell.style.backgroundColor = "#f5f5f5";
+            cell.style.fontWeight = "bold";
+          }
+        });
+      });
+
+      const mathElements = contentClone.querySelectorAll(".math-wrapper");
+      mathElements.forEach((mathEl) => {
+        mathEl.style.fontFamily = "KaTeX_Main, serif";
+
+        if (mathEl.classList.contains("display-mode")) {
+          mathEl.style.margin = "15px 0";
+          mathEl.style.textAlign = "center";
+        }
+      });
 
       const cornellElements = contentClone.querySelectorAll(
         ".cornell-note-container"
@@ -986,6 +1607,8 @@ function NotesEditor({ initialValue }) {
             blockFormat={true}
             tooltip="Numbered List"
           />
+          <TableButton editor={editor} />
+          <MathButton editor={editor} />
         </Toolbar>
 
         <ContentArea ref={editorRef}>

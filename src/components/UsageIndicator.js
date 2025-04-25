@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react"; // Import useState
 import styled from "styled-components";
 import { useUsage } from "../contexts/UsageContext";
+import UpgradeModal from "./UpgradeModal"; // Import the new modal
 
 const Container = styled.div`
   margin: 12px 0;
@@ -50,11 +51,10 @@ const ProgressBar = styled.div`
 `;
 
 const Hint = styled.div`
-  color: var(--text-secondary);
   font-size: 12px;
-  margin-top: 5px;
-  font-style: italic;
-  text-align: right;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-top: 4px;
 `;
 
 const LocalStorageIcon = styled.span`
@@ -65,8 +65,34 @@ const LocalStorageIcon = styled.span`
   cursor: help;
 `;
 
+const UpgradeButton = styled.button`
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 6px 12px;
+  background-color: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.3s;
+
+  &:hover {
+    background-color: #3a76d8; /* Darker accent color */
+  }
+
+  &:disabled {
+    background-color: #5c93e5;
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+`;
+
 function UsageIndicator() {
   const { usageCount, loadingUsage, usingLocalStorage } = useUsage();
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false); // Add state for modal
 
   if (loadingUsage) {
     return (
@@ -78,43 +104,63 @@ function UsageIndicator() {
     );
   }
 
-  const MAX_USAGE = 20; // Changed back from 2 to 20
+  const MAX_USAGE = 20;
   const remaining = MAX_USAGE - usageCount;
   const usagePercentage = (usageCount / MAX_USAGE) * 100;
-  const isNearLimit = remaining <= 5; // Changed threshold back to 5 since limit is now 20
+  const isNearLimit = remaining <= 5; // Keep for potential styling/hint text
+  const limitReached = remaining <= 0; // Keep for potential styling/hint text
+
+  const handleUpgradeClick = () => {
+    setIsUpgradeModalOpen(true); // Open the modal
+  };
 
   return (
-    <Container>
-      <Title>
-        <UsageLabel>
-          Usage Limit
-          {usingLocalStorage && (
-            <LocalStorageIcon title="Using local storage for tracking. Update Firebase permissions for cloud sync.">
-              📱
-            </LocalStorageIcon>
-          )}
-        </UsageLabel>
-        <CountBadge isNearLimit={isNearLimit}>
-          {usageCount} / {MAX_USAGE}
-        </CountBadge>
-      </Title>
+    <>
+      {" "}
+      {/* Use Fragment to render modal alongside */}
+      <Container>
+        <Title>
+          <UsageLabel>Generations Used:</UsageLabel>
+          <CountBadge isNearLimit={isNearLimit || limitReached}>
+            {usageCount} / {MAX_USAGE}
+          </CountBadge>
+        </Title>
+        {loadingUsage ? (
+          <div style={{ textAlign: "center", fontSize: "12px" }}>
+            Loading...
+          </div>
+        ) : (
+          <ProgressBarContainer>
+            <ProgressBar percentage={usagePercentage} />
+          </ProgressBarContainer>
+        )}
 
-      <ProgressBarContainer>
-        <ProgressBar percentage={usagePercentage} />
-      </ProgressBarContainer>
+        {/* Hint can still be conditional */}
+        {isNearLimit && (
+          <Hint>
+            {limitReached
+              ? "Free limit reached! Upgrade to Pro for more generations."
+              : `🚀 Only ${remaining} free generations left! Consider upgrading for uninterrupted productivity.`}
+          </Hint>
+        )}
 
-      {isNearLimit && (
-        <Hint>
-          {remaining <= 0
-            ? "Limit reached! Please upgrade for more."
-            : `Only ${remaining} generations remaining`}
-        </Hint>
-      )}
+        {/* Always render the Upgrade Button */}
+        <UpgradeButton onClick={handleUpgradeClick}>Upgrade Now</UpgradeButton>
 
-      {usingLocalStorage && (
-        <Hint>Local tracking only - update Firebase rules</Hint>
-      )}
-    </Container>
+        {usingLocalStorage && (
+          <Hint>
+            <LocalStorageIcon title="Usage is tracked locally as Firebase connection failed. Ensure Firestore rules allow writes to the 'usage' collection.">
+              ⚠️
+            </LocalStorageIcon>{" "}
+            Local tracking only
+          </Hint>
+        )}
+      </Container>
+      <UpgradeModal
+        isOpen={isUpgradeModalOpen}
+        onClose={() => setIsUpgradeModalOpen(false)}
+      />
+    </>
   );
 }
 

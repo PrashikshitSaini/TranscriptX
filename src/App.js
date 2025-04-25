@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { UsageProvider, useUsage } from "./contexts/UsageContext";
 import UsageIndicator from "./components/UsageIndicator";
 import PromptInput from "./components/PromptInput"; // New import for the prompt input
+import UpgradeModal from "./components/UpgradeModal"; // Import the modal
 
 // Main App Content
 function AppContent() {
@@ -31,6 +32,7 @@ function AppContent() {
   const [currentTranscription, setCurrentTranscription] = useState("");
   // Store current audio fingerprint to track when audio changes
   const [currentAudioFingerprint, setCurrentAudioFingerprint] = useState("");
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false); // Add state for modal
 
   // Reset transcription when audio changes
   useEffect(() => {
@@ -76,9 +78,7 @@ function AppContent() {
   const handleGenerateNotes = async () => {
     // Prevent usage if loading or limit reached
     if (!loadingUsage && usageCount >= 20) {
-      alert(
-        "You have reached the maximum usage limit of 20. Please upgrade your plan or try again later."
-      );
+      setIsUpgradeModalOpen(true); // Open the modal instead of alert
       return;
     }
 
@@ -174,7 +174,8 @@ function AppContent() {
       <Header currentUser={currentUser} onLogout={logout} />
       <main className="content">
         <div className="sidebar">
-          <UsageIndicator />
+          <UsageIndicator />{" "}
+          {/* UsageIndicator now handles its own modal trigger */}
           <AudioRecorder
             isRecording={isRecording}
             setIsRecording={setIsRecording}
@@ -225,6 +226,11 @@ function AppContent() {
           )}
         </div>
       </main>
+      {/* Render the modal at the top level */}
+      <UpgradeModal
+        isOpen={isUpgradeModalOpen}
+        onClose={() => setIsUpgradeModalOpen(false)}
+      />
     </div>
   );
 }
@@ -243,7 +249,7 @@ async function generateNotesFromTranscription(transcription, customPrompt) {
     console.log("Calling DeepSeek API...");
 
     const systemPrompt =
-      "You are an AI assistant that receives audio/video transcriptions and converts them into well-structured notes. The notes must: Contain detailed information from the transcription, be organized with clear headings and structure, be comprehensive but avoid adding anything not in the transcription, and be in English regardless of the transcription language.";
+      "You are an AI assistant that receives audio/video transcriptions and converts them into well-structured notes. The notes must: Contain detailed information from the transcription, be organized with clear headings and structure, be comprehensive but avoid adding anything not in the transcription, and be in English regardless of the transcription language. When appropriate, format information as tables using markdown table syntax. For any mathematical concepts, use LaTeX syntax surrounded by $ for inline formulas or $$ for display formulas. Use rich formatting to improve readability.";
 
     const response = await fetch(
       "https://api.deepseek.com/v1/chat/completions",
@@ -262,7 +268,7 @@ async function generateNotesFromTranscription(transcription, customPrompt) {
             },
             {
               role: "user",
-              content: `${customPrompt}\n\nHere is the transcription to use:\n\n${transcription}`,
+              content: `${customPrompt}\n\nHere is the transcription to use:\n\n${transcription}\n\nPlease format the notes effectively using markdown. When appropriate, create tables for structured data and use LaTeX notation for any mathematical formulas (use $inline formula$ or $$display formula$$). Include rich formatting to enhance readability.`,
             },
           ],
         }),
@@ -300,7 +306,7 @@ async function generateNotesFromTranscription(transcription, customPrompt) {
     ) {
       console.warn("Using fallback notes generation due to network error");
 
-      // Create structured Notion-like notes with proper spacing
+      // Create structured Notion-like notes with proper spacing and rich formatting
       const fallbackNotes = `# Notes from Transcription
 
 ## Key Points
@@ -319,6 +325,22 @@ async function generateNotesFromTranscription(transcription, customPrompt) {
 ## Summary
 
 ${transcription.substring(0, 150)}...
+
+## Example Table
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Tables | Displaying structured data | Supported |
+| Math Formulas | Using LaTeX notation | Supported |
+| Rich Text | Bold, italic, etc. | Supported |
+
+## Mathematical Example
+
+The relationship can be expressed as:
+
+$$E = mc^2$$
+
+Where $E$ represents energy, $m$ is mass, and $c$ is the speed of light in a vacuum.
 
 ## Details
 
