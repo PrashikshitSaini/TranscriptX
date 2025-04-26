@@ -36,7 +36,7 @@ async function uploadFile(file, onProgress) {
     });
 
     onProgress(50);
-    console.log("File upload successful, URL:", response.data.upload_url);
+    // Remove console.log("File upload successful, URL:", response.data.upload_url);
     return response.data.upload_url;
   } catch (error) {
     console.error("Upload error:", error);
@@ -61,7 +61,7 @@ function readFileAsArrayBuffer(file) {
 async function requestTranscription(audioUrl, onProgress) {
   try {
     onProgress(60);
-    console.log("Requesting transcription for URL:", audioUrl);
+    // Remove console.log("Requesting transcription for URL:", audioUrl);
 
     // Make sure we're sending the correct format
     const requestData = {
@@ -70,13 +70,13 @@ async function requestTranscription(audioUrl, onProgress) {
     };
 
     // Log the request for debugging
-    console.log("Sending transcription request:", JSON.stringify(requestData));
+    // Remove console.log("Sending transcription request:", JSON.stringify(requestData));
 
     // Send the request
     const response = await assemblyInstance.post(TRANSCRIPT_URL, requestData);
 
     // Log the response for debugging
-    console.log("Transcription request response:", response.data);
+    // Remove console.log("Transcription request response:", response.data);
 
     onProgress(70);
     return response.data.id;
@@ -115,7 +115,7 @@ async function checkTranscriptionStatus(transcriptId) {
 export const transcribeWithAssemblyAI = async (file, onProgress) => {
   try {
     onProgress(10);
-    console.log("Starting transcription for file:", file.name);
+    // Remove console.log("Starting transcription for file:", file.name);
 
     // Step 1: Upload the file
     const uploadUrl = await uploadFile(file, onProgress);
@@ -128,7 +128,7 @@ export const transcribeWithAssemblyAI = async (file, onProgress) => {
     const maxAttempts = 60; // 2 minutes with 2-second interval
 
     onProgress(75);
-    console.log("Polling for transcription completion, ID:", transcriptId);
+    // Remove console.log("Polling for transcription completion, ID:", transcriptId);
 
     while (attempts < maxAttempts) {
       // Sleep for 2 seconds
@@ -138,11 +138,11 @@ export const transcribeWithAssemblyAI = async (file, onProgress) => {
       const checkResponse = await checkTranscriptionStatus(transcriptId);
       const status = checkResponse.status;
 
-      console.log(
-        `Transcription status: ${status} (attempt ${
-          attempts + 1
-        }/${maxAttempts})`
-      );
+      // Remove console.log(
+      //   `Transcription status: ${status} (attempt ${
+      //     attempts + 1
+      //   }/${maxAttempts})`
+      // );
 
       // Update progress (75% to 95%)
       const progressValue = 75 + (attempts / maxAttempts) * 20;

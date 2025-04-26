@@ -7,7 +7,7 @@ import firebaseConfig from "../config/firebase-config";
 const app = initializeApp(firebaseConfig);
 
 // Log initialization for debugging
-console.log("Firebase initialized with project ID:", firebaseConfig.projectId);
+// Remove console.log("Firebase initialized with project ID:", firebaseConfig.projectId);
 
 // Initialize auth with explicit app reference
 export const auth = getAuth(app);

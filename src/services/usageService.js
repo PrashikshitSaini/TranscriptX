@@ -19,18 +19,16 @@ export async function getUsageCount(userId) {
   }
 
   try {
-    console.log(`Getting usage count for user: ${userId}`);
+    // Remove console.log(`Getting usage count for user: ${userId}`);
     const ref = doc(db, "usage", userId);
     const snap = await getDoc(ref);
 
     if (snap.exists()) {
       const data = snap.data();
-      console.log(`Found usage data:`, data);
+      // Remove console.log(`Found usage data:`, data);
       return data.count || 0;
     } else {
-      console.log(
-        `No existing usage data, creating new record for user: ${userId}`
-      );
+      console.log(`No existing usage data.`);
       try {
         await setDoc(ref, { count: 0, lastUpdated: new Date().toISOString() });
       } catch (error) {
@@ -66,7 +64,7 @@ export async function incrementUsageCount(userId) {
   }
 
   try {
-    console.log(`Incrementing usage for user: ${userId}`);
+    // Remove console.log(`Incrementing usage for user: ${userId}`);
     const ref = doc(db, "usage", userId);
     const snap = await getDoc(ref);
 
@@ -77,13 +75,13 @@ export async function incrementUsageCount(userId) {
         lastUpdated: new Date().toISOString(),
       });
     } else {
-      console.log("Creating new usage record with count=1");
+      // Remove console.log("Creating new usage record with count=1");
       await setDoc(ref, {
         count: 1,
         lastUpdated: new Date().toISOString(),
       });
     }
-    console.log("Usage count incremented successfully");
+    // Remove console.log("Usage count incremented successfully");
     return true;
   } catch (error) {
     console.error("Error incrementing usage count:", error);

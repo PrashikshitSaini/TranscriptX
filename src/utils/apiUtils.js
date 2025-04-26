@@ -11,16 +11,16 @@ export const enableApiLogging = () => {
         request.method?.toUpperCase(),
         request.url
       );
-      console.log("Request headers:", request.headers);
+      // Remove console.log("Request headers:", request.headers);
 
-      if (request.data) {
-        console.log(
-          "Request data:",
-          typeof request.data === "string"
-            ? request.data
-            : JSON.stringify(request.data)
-        );
-      }
+      // Remove if (request.data) {
+      //   console.log(
+      //     "Request data:",
+      //     typeof request.data === "string"
+      //       ? request.data
+      //       : JSON.stringify(request.data)
+      //   );
+      // }
 
       return request;
     });
@@ -28,7 +28,7 @@ export const enableApiLogging = () => {
     // Response interceptor
     axios.interceptors.response.use(
       (response) => {
-        console.log("API Response:", response.status, response.config.url);
+        // Remove console.log("API Response:", response.status, response.config.url);
         return response;
       },
       (error) => {

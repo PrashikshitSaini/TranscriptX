@@ -50,23 +50,18 @@ export function UsageProvider({ children }) {
 
       try {
         if (currentUser) {
-          console.log("Fetching usage for user:", currentUser.uid);
-
           // Try to get from Firebase first
           let count = await getUsageCount(currentUser.uid);
 
           // If Firebase failed, try local storage
           const localCount = getLocalUsageCount(currentUser.uid);
           if (count === 0 && localCount > 0) {
-            console.log("Using local storage count:", localCount);
             count = localCount;
             setUsingLocalStorage(true);
           }
 
-          console.log("Retrieved usage count:", count);
           setUsageCount(count);
         } else {
-          console.log("No user logged in, resetting count to 0");
           setUsageCount(0);
         }
       } catch (error) {
@@ -75,7 +70,6 @@ export function UsageProvider({ children }) {
         // Fallback to local storage
         if (currentUser) {
           const localCount = getLocalUsageCount(currentUser.uid);
-          console.log("Fallback to local storage count:", localCount);
           setUsageCount(localCount);
           setUsingLocalStorage(true);
         }
@@ -94,19 +88,15 @@ export function UsageProvider({ children }) {
     }
 
     try {
-      console.log("Incrementing usage for user:", currentUser.uid);
-
       // Try to increment in Firebase
       const success = await incrementUsageCount(currentUser.uid);
 
       // Update local state (regardless of Firebase success)
       setUsageCount((prevCount) => {
         const newCount = prevCount + 1;
-        console.log("Updated usage count:", newCount);
 
         // If Firebase failed, use local storage as backup
         if (!success) {
-          console.log("Firebase update failed, using local storage");
           setUsingLocalStorage(true);
           saveLocalUsageCount(currentUser.uid, newCount);
         }
@@ -119,7 +109,6 @@ export function UsageProvider({ children }) {
       // Still increment locally even if Firebase fails
       setUsageCount((prevCount) => {
         const newCount = prevCount + 1;
-        console.log("Updated local usage count after error:", newCount);
         setUsingLocalStorage(true);
         saveLocalUsageCount(currentUser.uid, newCount);
         return newCount;

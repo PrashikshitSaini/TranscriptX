@@ -1471,8 +1471,6 @@ const deserialize = (content) => {
           .map((node) => sanitizeNode(node)) // Use enhanced sanitizeNode
           .filter(Boolean); // Filter out potential nulls
 
-        console.log("Deserialized Nodes:", deepSanitizedNodes); // Log the final structure
-
         // Ensure the final result is not empty and is valid
         if (
           deepSanitizedNodes.length === 0 ||
@@ -1655,7 +1653,6 @@ function NotesEditor({
 
   // Safely process initialValue
   useEffect(() => {
-    console.log("NotesEditor: Received initialValue", initialValue);
     setIsEditorReady(false); // Set to not ready while processing
     setInternalError(null); // Clear previous errors
 
@@ -1663,7 +1660,6 @@ function NotesEditor({
     const timerId = setTimeout(() => {
       try {
         const processed = deserialize(initialValue); // Use the improved deserialize
-        console.log("NotesEditor: Deserialized value", processed);
         // Validate the processed value before setting state
         if (
           !Array.isArray(processed) ||

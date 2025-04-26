@@ -117,8 +117,7 @@ function AppContent() {
   };
 
   // Safely handle note generation with proper error handling
-  const 
-  handleGenerateNotes = async () => {
+  const handleGenerateNotes = async () => {
     let isAdmin = false;
     // Prevent usage if loading or limit reached (unless admin)
     if (!isAdmin && !loadingUsage && usageCount >= 20) {
@@ -181,7 +180,7 @@ function AppContent() {
       // Also skip increment for admin user
       if (!isAdmin && isNewTranscription && !usageCounted) {
         // Add !isAdmin condition
-        console.log("Incrementing usage count - new transcription");
+        // Remove console.log("Incrementing usage count - new transcription");
         await incrementUsage();
         setUsageCounted(true);
       } else if (isAdmin) {
@@ -294,7 +293,6 @@ function AppContent() {
     try {
       if (currentNoteId) {
         // Update existing note
-        console.log(`Updating note ${currentNoteId} with title: ${title}`);
         await updateNote(currentNoteId, {
           content: editorContent,
           title: title,
@@ -312,7 +310,6 @@ function AppContent() {
         alert("Note updated successfully!");
       } else {
         // Save new note
-        console.log(`Saving new note with title: ${title}`);
         const newNote = await saveNote(currentUser.uid, {
           content: editorContent,
           title: title,
@@ -440,8 +437,6 @@ async function generateNotesFromTranscription(transcription, customPrompt) {
   }
 
   try {
-    console.log("Calling DeepSeek API...");
-
     const systemPrompt =
       "You are an AI assistant that receives audio/video transcriptions and converts them into well-structured notes. The notes must: Contain detailed information from the transcription, be organized with clear headings and structure, be comprehensive but avoid adding anything not in the transcription, and be in English regardless of the transcription language. When appropriate, format information as tables using markdown table syntax. For any mathematical concepts, use LaTeX syntax surrounded by $ for inline formulas or $$ for display formulas. Use rich formatting to improve readability.";
 
@@ -469,9 +464,6 @@ async function generateNotesFromTranscription(transcription, customPrompt) {
       }
     );
 
-    // Log the response status for debugging
-    console.log("DeepSeek API response status:", response.status);
-
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       console.error("API error details:", errorData);
@@ -483,7 +475,6 @@ async function generateNotesFromTranscription(transcription, customPrompt) {
     }
 
     const data = await response.json();
-    console.log("DeepSeek API response:", data);
 
     if (!data.choices || !data.choices[0] || !data.choices[0].message) {
       throw new Error("Invalid response format from API");

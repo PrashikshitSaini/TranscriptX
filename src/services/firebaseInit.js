@@ -16,6 +16,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // Log initialization for debugging
-console.log("Firebase initialized with project:", firebaseConfig.projectId);
+// Remove console.log("Firebase initialized with project:", firebaseConfig.projectId);
 
 export default app;
