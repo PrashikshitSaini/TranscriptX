@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react"; // Add useCallback
 import "./styles/App.css";
 import Header from "./components/Header";
 import AudioRecorder from "./components/AudioRecorder";
@@ -9,30 +9,55 @@ import Login from "./components/Login";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { UsageProvider, useUsage } from "./contexts/UsageContext";
 import UsageIndicator from "./components/UsageIndicator";
-import PromptInput from "./components/PromptInput"; // New import for the prompt input
-import UpgradeModal from "./components/UpgradeModal"; // Import the modal
+import PromptInput from "./components/PromptInput";
+import UpgradeModal from "./components/UpgradeModal";
+import NotesSidebar from "./components/NotesSidebar"; // Import Sidebar
+import {
+  saveNote,
+  getUserNotes,
+  getNoteById,
+  updateNote,
+  deleteNote,
+} from "./services/notesService"; // Import notes service
+import { Node } from "slate"; // Import Node from slate
+import { extractTitleFromContent } from "./utils/textSanitizer";
 
 // Main App Content
 function AppContent() {
   const { currentUser, logout } = useAuth();
   const { usageCount, incrementUsage, loadingUsage } = useUsage();
-  const [audioFile, setAudioFile] = useState(null); // Store audio file or recording
+  const [audioFile, setAudioFile] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [recordedAudio, setRecordedAudio] = useState(null); // Store recorded audio
-  const [generatedNotes, setGeneratedNotes] = useState("");
+  const [recordedAudio, setRecordedAudio] = useState(null);
+  // Safe default note value
+  const DEFAULT_NOTE_VALUE = useMemo(
+    () => [{ type: "paragraph", children: [{ text: "" }] }],
+    []
+  );
+
+  // Ensure generatedNotes always has a safe initial state
+  const [generatedNotes, setGeneratedNotes] = useState(DEFAULT_NOTE_VALUE);
+
+  // Add state for note saving
+  const [isSavingNote, setIsSavingNote] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [error, setError] = useState(null);
   const [customPrompt, setCustomPrompt] = useState(
     "Create comprehensive, well-structured notes with headings, bullet points, and summaries."
   );
-  // Track if usage was counted for current session
   const [usageCounted, setUsageCounted] = useState(false);
-  // Store current transcription to avoid retranscribing the same audio
   const [currentTranscription, setCurrentTranscription] = useState("");
-  // Store current audio fingerprint to track when audio changes
   const [currentAudioFingerprint, setCurrentAudioFingerprint] = useState("");
-  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false); // Add state for modal
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+
+  // --- New State for Notes ---
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [savedNotes, setSavedNotes] = useState([]);
+  const [currentNoteId, setCurrentNoteId] = useState(null); // ID of note in editor
+  const [isLoadingNotes, setIsLoadingNotes] = useState(false); // Loading state for notes list
+  const [isEditorLoading, setIsEditorLoading] = useState(false); // Loading state for editor content
+  // --- End New State ---
 
   // Reset transcription when audio changes
   useEffect(() => {
@@ -48,36 +73,56 @@ function AppContent() {
       setCurrentTranscription("");
       setCurrentAudioFingerprint(newFingerprint);
       setUsageCounted(false);
+      // Also clear the editor if audio changes, as it's no longer linked to a saved note
+      setGeneratedNotes(null);
+      setCurrentNoteId(null);
+      setShowEditor(false);
     }
-  }, [audioFile, recordedAudio]);
+  }, [audioFile, recordedAudio, currentAudioFingerprint]); // Added dependencies
 
-  // Add useEffect for mobile detection
+  // Fetch notes when component mounts and user exists
   useEffect(() => {
-    // Check if this is a mobile device
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-      // Show mobile-specific instructions
-      setTimeout(() => {
-        alert(
-          "To use the audio recording feature on mobile devices, please:\n\n• Ensure your browser has microphone permissions\n• For iOS: Use Safari for best compatibility\n• For Android: Use Chrome or Firefox\n\nIf recording doesn't work, try using the file upload option instead."
-        );
-      }, 1000);
+    if (currentUser) {
+      fetchUserNotes();
+    } else {
+      setSavedNotes([]); // Clear notes on logout
+      setCurrentNoteId(null);
+      setGeneratedNotes(null);
+      setShowEditor(false);
     }
-  }, []);
+  }, [currentUser]);
+
+  const fetchUserNotes = async () => {
+    if (!currentUser) return;
+    setIsLoadingNotes(true);
+    try {
+      const userNotes = await getUserNotes(currentUser.uid);
+      setSavedNotes(userNotes);
+    } catch (err) {
+      setError("Failed to load saved notes.");
+      console.error(err);
+    } finally {
+      setIsLoadingNotes(false);
+    }
+  };
 
   const handleFileSelected = (file) => {
     setAudioFile(file);
-    setRecordedAudio(null); // Clear any recorded audio when a file is uploaded
+    setRecordedAudio(null);
   };
 
   const handleAudioRecorded = (audioBlob) => {
     setRecordedAudio(audioBlob);
-    setAudioFile(null); // Clear any uploaded file when audio is recorded
+    setAudioFile(null);
   };
 
-  const handleGenerateNotes = async () => {
-    // Prevent usage if loading or limit reached
-    if (!loadingUsage && usageCount >= 20) {
+  // Safely handle note generation with proper error handling
+  const 
+  handleGenerateNotes = async () => {
+    let isAdmin = false;
+    // Prevent usage if loading or limit reached (unless admin)
+    if (!isAdmin && !loadingUsage && usageCount >= 20) {
+      // Add !isAdmin condition
       setIsUpgradeModalOpen(true); // Open the modal instead of alert
       return;
     }
@@ -90,7 +135,6 @@ function AppContent() {
 
     setIsProcessing(true);
     setError(null);
-    setShowEditor(false);
 
     try {
       // Step 1: Check if we already have a transcription for this audio
@@ -106,13 +150,12 @@ function AppContent() {
           transcription = await transcribeAudioFile(audioFile);
         } else if (recordedAudio) {
           // Transcribe the recorded audio
-          transcription = await transcribeAudioFile(recordedAudio);
+          transcription = await transcribeAudioFile(recordedAudio); // Assuming transcribeAudioFile handles blobs
         }
 
         if (!transcription || transcription.trim() === "") {
           throw new Error("Failed to transcribe audio");
         }
-
         // Save the transcription for future use
         setCurrentTranscription(transcription);
       }
@@ -123,40 +166,49 @@ function AppContent() {
         customPrompt
       );
 
-      // Check if notes were properly generated
-      if (!notes || notes.trim() === "") {
-        throw new Error("Failed to generate notes from the API");
+      // Handle the result safely
+      if (notes) {
+        setGeneratedNotes(notes);
+      } else {
+        console.warn("Note generation returned null/undefined, using default");
+        setGeneratedNotes(DEFAULT_NOTE_VALUE);
       }
 
-      setGeneratedNotes(notes);
       setShowEditor(true);
+      setCurrentNoteId(null); // It's a new note, clear any existing ID
 
       // Only increment usage if this is a new transcription and not already counted
-      if (isNewTranscription && !usageCounted) {
+      // Also skip increment for admin user
+      if (!isAdmin && isNewTranscription && !usageCounted) {
+        // Add !isAdmin condition
         console.log("Incrementing usage count - new transcription");
         await incrementUsage();
         setUsageCounted(true);
+      } else if (isAdmin) {
+        console.log("Skipping usage count - Admin user.");
       } else {
         console.log("Skipping usage count - using cached transcription");
       }
     } catch (error) {
-      console.error("Error generating notes:", error);
+      console.error("Error during note generation:", error);
       setError(`Failed to generate notes: ${error.message}`);
-      alert(`Failed to generate notes: ${error.message}. Please try again.`);
+      // Do NOT set generatedNotes to null here
     } finally {
       setIsProcessing(false);
     }
   };
 
   // Transcribe audio file using transcriptionService
-  const transcribeAudioFile = async (audioFile) => {
+  const transcribeAudioFile = async (audioSource) => {
+    // Renamed param
     // Import the service dynamically to avoid circular dependencies
     const { transcribeWithAssemblyAI } = await import(
       "./services/transcriptionService"
     );
 
     return new Promise((resolve, reject) => {
-      transcribeWithAssemblyAI(audioFile, (progress) => {
+      transcribeWithAssemblyAI(audioSource, (progress) => {
+        // Use audioSource
         // Update progress if needed
       })
         .then((transcriptionText) => resolve(transcriptionText))
@@ -164,18 +216,151 @@ function AppContent() {
     });
   };
 
-  // If not logged in, show login screen
+  // --- Notes Management Functions ---
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
+  // Safe note selection handler
+  const handleNoteSelect = async (noteId) => {
+    if (!noteId) {
+      // User might have deleted the currently open note, or wants a blank slate
+      setCurrentNoteId(null);
+      setGeneratedNotes(DEFAULT_NOTE_VALUE); // Reset to default
+      setShowEditor(false);
+      return;
+    }
+
+    if (noteId === currentNoteId) return; // Already selected
+
+    setIsEditorLoading(true);
+    setShowEditor(true);
+
+    try {
+      const noteData = await getNoteById(noteId);
+
+      if (noteData && noteData.content) {
+        // Ensure content exists
+        setCurrentNoteId(noteId);
+        setGeneratedNotes(noteData.content); // Content should be sanitized by NotesEditor's deserialize
+        // Clear transcription/audio context as we loaded a note
+        setCurrentTranscription("");
+        setAudioFile(null);
+        setRecordedAudio(null);
+        setCurrentAudioFingerprint(`note-${noteId}`);
+      } else {
+        setError("Could not load the selected note.");
+        setCurrentNoteId(null);
+        setGeneratedNotes(DEFAULT_NOTE_VALUE); // Use default value
+        setShowEditor(false);
+      }
+    } catch (err) {
+      setError("Failed to load note content.");
+      console.error(err);
+      setCurrentNoteId(null);
+      setGeneratedNotes(DEFAULT_NOTE_VALUE); // Use default value on error
+      setShowEditor(false);
+    } finally {
+      setIsEditorLoading(false);
+    }
+  };
+
+  // Define the save note handler
+  const handleSaveNote = async (editorContent) => {
+    if (!currentUser) {
+      setError("You must be logged in to save notes.");
+      return;
+    }
+    if (
+      !editorContent ||
+      !Array.isArray(editorContent) ||
+      editorContent.length === 0
+    ) {
+      setError("Cannot save empty note.");
+      return;
+    }
+
+    setIsSavingNote(true);
+    setError(null);
+
+    // Use the utility function to extract title safely
+    let title = extractTitleFromContent(editorContent, "Untitled Note");
+
+    // Ensure title is not null or undefined
+    if (!title || title.trim() === "") {
+      title = "Untitled Note";
+    }
+
+    try {
+      if (currentNoteId) {
+        // Update existing note
+        console.log(`Updating note ${currentNoteId} with title: ${title}`);
+        await updateNote(currentNoteId, {
+          content: editorContent,
+          title: title,
+          userId: currentUser.uid, // Explicitly include userId for validation
+        });
+
+        // Update local state
+        setSavedNotes((prevNotes) =>
+          prevNotes.map((note) =>
+            note.id === currentNoteId
+              ? { ...note, title: title, content: editorContent }
+              : note
+          )
+        );
+        alert("Note updated successfully!");
+      } else {
+        // Save new note
+        console.log(`Saving new note with title: ${title}`);
+        const newNote = await saveNote(currentUser.uid, {
+          content: editorContent,
+          title: title,
+          userId: currentUser.uid, // Explicitly include userId for validation
+        });
+        setSavedNotes((prevNotes) => [...prevNotes, newNote]);
+        setCurrentNoteId(newNote.id);
+        alert("Note saved successfully!");
+      }
+    } catch (err) {
+      console.error("Failed to save note:", err);
+      setError(`Failed to save note: ${err.message}`);
+      alert(`Error saving note: ${err.message}`);
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
+  // --- End Notes Management Functions ---
+
   if (!currentUser) {
     return <Login />;
   }
 
   return (
     <div className="app">
-      <Header currentUser={currentUser} onLogout={logout} />
+      {/* Pass toggle function to Header */}
+      <Header
+        currentUser={currentUser}
+        onLogout={logout}
+        onToggleSidebar={toggleSidebar}
+      />
+
+      {/* Render Sidebar */}
+      <NotesSidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        onNoteSelect={handleNoteSelect}
+        currentNoteId={currentNoteId}
+        notes={savedNotes}
+        setNotes={setSavedNotes} // Pass setter for updates within sidebar
+        isLoadingNotes={isLoadingNotes}
+        setIsLoadingNotes={setIsLoadingNotes}
+      />
+
       <main className="content">
         <div className="sidebar">
-          <UsageIndicator />{" "}
-          {/* UsageIndicator now handles its own modal trigger */}
+          <UsageIndicator />
           <AudioRecorder
             isRecording={isRecording}
             setIsRecording={setIsRecording}
@@ -193,9 +378,11 @@ function AppContent() {
           <button
             className="generate-btn"
             onClick={handleGenerateNotes}
-            disabled={(!audioFile && !recordedAudio) || isProcessing}
+            disabled={
+              (!audioFile && !recordedAudio) || isProcessing || isEditorLoading
+            }
           >
-            {isProcessing ? "Processing..." : "Generate Notes"}
+            {isProcessing ? "Processing..." : "Generate New Notes"}
           </button>
           {currentTranscription && (
             <p className="transcription-info">
@@ -206,7 +393,14 @@ function AppContent() {
         </div>
         <div className="main-content">
           {showEditor ? (
-            <NotesEditor initialValue={generatedNotes} />
+            // Pass save handler and potentially loading state to editor
+            <NotesEditor
+              key={currentNoteId || "new-note"} // Force re-render when note changes
+              initialValue={generatedNotes}
+              onSaveRequest={handleSaveNote} // Pass the save handler
+              isLoading={isEditorLoading || isSavingNote} // Combine loading states
+              noteId={currentNoteId} // Pass current note ID
+            />
           ) : (
             <div className="placeholder-container">
               <h2>TranscriptX</h2>
@@ -222,11 +416,11 @@ function AppContent() {
                   ✓ Transcription already available
                 </p>
               )}
+              <p>Select a note from the menu (☰) or generate new notes.</p>
             </div>
           )}
         </div>
       </main>
-      {/* Render the modal at the top level */}
       <UpgradeModal
         isOpen={isUpgradeModalOpen}
         onClose={() => setIsUpgradeModalOpen(false)}
