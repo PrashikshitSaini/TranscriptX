@@ -49,21 +49,3 @@ export const enableApiLogging = () => {
     );
   }
 };
-
-// Function to check if API keys are properly configured
-export const checkApiKeys = () => {
-  const missing = [];
-
-  if (!process.env.REACT_APP_ASSEMBLY_API_KEY) {
-    missing.push("REACT_APP_ASSEMBLY_API_KEY");
-  }
-
-  if (!process.env.REACT_APP_DEEPSEEK_API_KEY) {
-    missing.push("REACT_APP_DEEPSEEK_API_KEY");
-  }
-
-  return {
-    valid: missing.length === 0,
-    missing,
-  };
-};

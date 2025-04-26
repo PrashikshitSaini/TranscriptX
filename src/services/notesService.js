@@ -18,12 +18,13 @@ const NOTES_COLLECTION = "userNotes";
 /**
  * Save a new note
  * @param {string} userId - The user ID
- * @param {object} noteData - The note data containing title and content
- * @returns {Promise<object>} The saved note
+ * @param {object} noteData - The note data containing title and content (HTML string)
+ * @returns {Promise<string>} The ID of the saved note
  */
 export const saveNote = async (userId, noteData) => {
   if (!userId || typeof userId !== "string") {
-    throw new Error("User ID, title, and content are required to save a note.");
+    // Keep User ID validation
+    throw new Error("User ID is required to save a note.");
   }
 
   // Ensure noteData object exists
@@ -31,54 +32,97 @@ export const saveNote = async (userId, noteData) => {
     throw new Error("Note data must be provided as an object.");
   }
 
-  // Validate required fields
+  // Validate required fields (title and content as string)
   const { title, content } = noteData;
 
   if (!title || typeof title !== "string" || title.trim() === "") {
-    throw new Error("User ID, title, and content are required to save a note.");
+    // Keep title validation
+    throw new Error("Note title is required.");
   }
 
-  if (!content || !Array.isArray(content) || content.length === 0) {
-    throw new Error("User ID, title, and content are required to save a note.");
+  // --- Updated Content Validation ---
+  // Check if content is a non-empty string
+  if (
+    !content ||
+    typeof content !== "string" ||
+    content.trim() === "" ||
+    content.trim() === "<p></p>"
+  ) {
+    throw new Error("Note content cannot be empty.");
   }
+  // --- End Updated Content Validation ---
 
   // If validation passes, continue with saving the note
   try {
     // Normalize noteData to ensure all required fields
     const normalizedNoteData = {
-      ...noteData,
       title: title.trim(),
+      content: content, // Store the HTML string
       userId, // Ensure userId is included
-      createdAt: new Date().toISOString(),
+      // Remove createdAt: new Date().toISOString(), // Use serverTimestamp instead
     };
 
     const docRef = await addDoc(collection(db, NOTES_COLLECTION), {
       ...normalizedNoteData,
-      createdAt: serverTimestamp(),
-      lastModified: serverTimestamp(),
+      createdAt: serverTimestamp(), // Use server timestamp for creation
+      lastModified: serverTimestamp(), // Use server timestamp for modification
     });
-    // Remove console.log("Note saved successfully with ID:", docRef.id);
-    return docRef.id;
+    // Return the ID of the newly created document
+    return { id: docRef.id, ...normalizedNoteData }; // Return the full note object including ID
   } catch (error) {
     console.error("Error saving note:", error);
-    throw error;
+    // Re-throw a more specific error or the original one
+    throw new Error(`Could not save note: ${error.message}`);
   }
 };
 
 /**
  * Updates an existing note.
  * @param {string} noteId - The ID of the note document.
- * @param {object} updates - An object containing fields to update (e.g., { title, content }).
+ * @param {object} updatedData - An object containing fields to update (e.g., { title: "New Title", content: "<p>New content</p>" })
  */
-export async function updateNote(noteId, updates) {
-  if (!noteId || !updates) {
-    throw new Error("Note ID and updates are required.");
+export async function updateNote(noteId, updatedData) {
+  if (!noteId) {
+    throw new Error("Note ID is required to update.");
   }
+  if (
+    !updatedData ||
+    typeof updatedData !== "object" ||
+    Object.keys(updatedData).length === 0
+  ) {
+    throw new Error("Update data must be provided as a non-empty object.");
+  }
+
+  // --- Optional: Validate content if present in updatedData ---
+  if (updatedData.content !== undefined) {
+    if (
+      typeof updatedData.content !== "string" ||
+      updatedData.content.trim() === "" ||
+      updatedData.content.trim() === "<p></p>"
+    ) {
+      throw new Error("Note content cannot be empty.");
+    }
+  }
+  // --- End Content Validation ---
+
+  // --- Optional: Validate title if present ---
+  if (updatedData.title !== undefined) {
+    if (
+      typeof updatedData.title !== "string" ||
+      updatedData.title.trim() === ""
+    ) {
+      throw new Error("Note title cannot be empty.");
+    }
+    // Trim title if updating
+    updatedData.title = updatedData.title.trim();
+  }
+  // --- End Title Validation ---
+
   try {
     const noteRef = doc(db, NOTES_COLLECTION, noteId);
     await updateDoc(noteRef, {
-      ...updates,
-      lastModified: serverTimestamp(),
+      ...updatedData,
+      lastModified: serverTimestamp(), // Update the last modified timestamp
     });
     // Remove console.log("Note updated successfully:", noteId);
   } catch (error) {

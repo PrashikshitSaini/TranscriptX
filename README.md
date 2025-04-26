@@ -51,7 +51,7 @@ _(Note: Payment processing and Pro user status detection are not yet implemented
    ```
 3. Create a `.env` file in the root directory and add your DeepSeek API key:
    ```
-   REACT_APP_DEEPSEEK_API_KEY=your-api-key-here
+   DEEPSEEK_API_KEY=your-api-key-here
    ```
 4. Start the development server:
    ```

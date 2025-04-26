@@ -1,6 +1,7 @@
-// Firebase configuration from environment variables (with no fallbacks)
+// Firebase configuration from environment variables
+// IMPORTANT: For Firebase client-side SDK, API key MUST be exposed via REACT_APP_ prefix in .env
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY, // Use the REACT_APP_ prefixed key
   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
   storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
@@ -11,7 +12,7 @@ const firebaseConfig = {
 // Validate configuration - this helps catch common issues
 const validateFirebaseConfig = () => {
   const requiredFields = [
-    "apiKey",
+    "apiKey", // Check for the REACT_APP_ prefixed key
     "authDomain",
     "projectId",
     "storageBucket",
@@ -19,13 +20,24 @@ const validateFirebaseConfig = () => {
     "appId",
   ];
 
+  // Check specifically if the apiKey (which needs the prefix) is missing
+  if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "undefined") {
+    console.error(
+      `Firebase config is missing required field: apiKey. Ensure 'REACT_APP_FIREBASE_API_KEY' is set in your .env file.`
+    );
+    return false;
+  }
+
+  // Check other fields
   const missingFields = requiredFields.filter(
     (field) => !firebaseConfig[field] || firebaseConfig[field] === "undefined"
   );
 
   if (missingFields.length > 0) {
     console.error(
-      `Firebase config is missing required fields: ${missingFields.join(", ")}`
+      `Firebase config is missing required fields: ${missingFields.join(
+        ", "
+      )}. Ensure all REACT_APP_FIREBASE_* variables are set in your .env file.`
     );
     return false;
   }

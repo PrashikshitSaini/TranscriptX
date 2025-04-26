@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import { testApiKey } from "../services/transcriptionService";
 
 const UploaderContainer = styled.div`
   display: flex;
@@ -60,17 +59,6 @@ function FileUploader({ onFileSelected, setIsProcessing }) {
   const [error, setError] = useState(null);
   const [fileReady, setFileReady] = useState(false);
   const fileInputRef = React.useRef();
-
-  React.useEffect(() => {
-    const checkApiStatus = async () => {
-      const result = await testApiKey();
-      if (!result.valid) {
-        setError(`API key validation failed: ${result.error}`);
-      }
-    };
-
-    checkApiStatus();
-  }, []);
 
   const handleFileSelect = (event) => {
     const file = event.target.files[0];

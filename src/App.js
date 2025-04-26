@@ -19,8 +19,12 @@ import {
   updateNote,
   deleteNote,
 } from "./services/notesService"; // Import notes service
-import { Node } from "slate"; // Import Node from slate
-import { extractTitleFromContent } from "./utils/textSanitizer";
+import { extractTitleFromContent } from "./utils/textSanitizer"; // Keep this, but it will be modified
+
+import axios from "axios"; // Import axios
+
+// Default empty state for TipTap (HTML)
+const DEFAULT_NOTE_VALUE = "";
 
 // Main App Content
 function AppContent() {
@@ -30,13 +34,7 @@ function AppContent() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordedAudio, setRecordedAudio] = useState(null);
   // Safe default note value
-  const DEFAULT_NOTE_VALUE = useMemo(
-    () => [{ type: "paragraph", children: [{ text: "" }] }],
-    []
-  );
-
-  // Ensure generatedNotes always has a safe initial state
-  const [generatedNotes, setGeneratedNotes] = useState(DEFAULT_NOTE_VALUE);
+  const [generatedNotes, setGeneratedNotes] = useState(DEFAULT_NOTE_VALUE); // Use new default
 
   // Add state for note saving
   const [isSavingNote, setIsSavingNote] = useState(false);
@@ -238,10 +236,12 @@ function AppContent() {
     try {
       const noteData = await getNoteById(noteId);
 
-      if (noteData && noteData.content) {
-        // Ensure content exists
+      if (noteData) {
+        // Pass the raw content (could be old Slate JSON or new HTML)
+        // The NotesEditor's deserialize logic will handle conversion
         setCurrentNoteId(noteId);
-        setGeneratedNotes(noteData.content); // Content should be sanitized by NotesEditor's deserialize
+        // Ensure content is not null/undefined before setting
+        setGeneratedNotes(noteData.content || DEFAULT_NOTE_VALUE);
         // Clear transcription/audio context as we loaded a note
         setCurrentTranscription("");
         setAudioFile(null);
@@ -265,15 +265,17 @@ function AppContent() {
   };
 
   // Define the save note handler
+  // Now expects editorContent to be HTML string from TipTap
   const handleSaveNote = async (editorContent) => {
     if (!currentUser) {
       setError("You must be logged in to save notes.");
       return;
     }
+    // Basic check for empty content (might need refinement for empty HTML like '<p></p>')
     if (
       !editorContent ||
-      !Array.isArray(editorContent) ||
-      editorContent.length === 0
+      editorContent === "<p></p>" ||
+      editorContent.trim() === ""
     ) {
       setError("Cannot save empty note.");
       return;
@@ -282,7 +284,7 @@ function AppContent() {
     setIsSavingNote(true);
     setError(null);
 
-    // Use the utility function to extract title safely
+    // Use the updated utility function to extract title from HTML content
     let title = extractTitleFromContent(editorContent, "Untitled Note");
 
     // Ensure title is not null or undefined
@@ -291,32 +293,30 @@ function AppContent() {
     }
 
     try {
+      const noteData = {
+        content: editorContent, // Save HTML content
+        title: title,
+        userId: currentUser.uid,
+      };
+
       if (currentNoteId) {
         // Update existing note
-        await updateNote(currentNoteId, {
-          content: editorContent,
-          title: title,
-          userId: currentUser.uid, // Explicitly include userId for validation
-        });
+        await updateNote(currentNoteId, noteData);
 
         // Update local state
         setSavedNotes((prevNotes) =>
           prevNotes.map((note) =>
-            note.id === currentNoteId
-              ? { ...note, title: title, content: editorContent }
-              : note
+            note.id === currentNoteId ? { ...note, ...noteData } : note
           )
         );
         alert("Note updated successfully!");
       } else {
         // Save new note
-        const newNote = await saveNote(currentUser.uid, {
-          content: editorContent,
-          title: title,
-          userId: currentUser.uid, // Explicitly include userId for validation
-        });
+        const newNote = await saveNote(currentUser.uid, noteData);
         setSavedNotes((prevNotes) => [...prevNotes, newNote]);
         setCurrentNoteId(newNote.id);
+        // Optionally update the editor content state if needed, though TipTap manages its state internally
+        // setGeneratedNotes(editorContent);
         alert("Note saved successfully!");
       }
     } catch (err) {
@@ -393,8 +393,8 @@ function AppContent() {
             // Pass save handler and potentially loading state to editor
             <NotesEditor
               key={currentNoteId || "new-note"} // Force re-render when note changes
-              initialValue={generatedNotes}
-              onSaveRequest={handleSaveNote} // Pass the save handler
+              initialValue={generatedNotes} // Pass HTML string or potentially old Slate JSON
+              onSaveRequest={handleSaveNote} // Expects HTML string back
               isLoading={isEditorLoading || isSavingNote} // Combine loading states
               noteId={currentNoteId} // Pass current note ID
             />
@@ -426,85 +426,42 @@ function AppContent() {
   );
 }
 
-// Actual implementation of the DeepSeek API
+// Updated implementation that uses backend proxy for DeepSeek API
 async function generateNotesFromTranscription(transcription, customPrompt) {
-  // Get the API key from environment variable
-  const API_KEY = process.env.REACT_APP_DEEPSEEK_API_KEY;
-
-  if (!API_KEY) {
-    console.error("Model is missing");
-    throw new Error("Model is missing");
-  }
-
   try {
-    const systemPrompt =
-      "You are an AI assistant that receives audio/video transcriptions and converts them into well-structured notes. The notes must: Contain detailed information from the transcription, be organized with clear headings and structure, be comprehensive but avoid adding anything not in the transcription, and be in English regardless of the transcription language. When appropriate, format information as tables using markdown table syntax. For any mathematical concepts, use LaTeX syntax surrounded by $ for inline formulas or $$ for display formulas. Use rich formatting to improve readability.";
+    // Call our backend endpoint instead of DeepSeek directly
+    const response = await axios.post("/api/generate-notes", {
+      transcription,
+      customPrompt,
+    });
 
-    const response = await fetch(
-      "https://api.deepseek.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "deepseek-chat",
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt,
-            },
-            {
-              role: "user",
-              content: `${customPrompt}\n\nHere is the transcription to use:\n\n${transcription}\n\nPlease format the notes effectively using markdown. When appropriate, create tables for structured data and use LaTeX notation for any mathematical formulas (use $inline formula$ or $$display formula$$). Include rich formatting to enhance readability.`,
-            },
-          ],
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error("API error details:", errorData);
-      throw new Error(
-        `API request failed with status ${response.status}: ${
-          errorData.error?.message || "Unknown error"
-        }`
-      );
+    // If we have notes in the response, return them
+    if (response.data && response.data.notes) {
+      return response.data.notes;
     }
 
-    const data = await response.json();
-
-    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-      throw new Error("Invalid response format from API");
-    }
-
-    return data.choices[0].message.content;
+    // Fall back to local generation if needed
+    throw new Error("Failed to get notes from server");
   } catch (error) {
-    console.error("Error calling DeepSeek API:", error);
+    console.error("Error generating notes:", error);
 
-    // If we can't connect to the API, provide a notion-style fallback for testing
-    if (
-      error.message.includes("Failed to fetch") ||
-      error.message.includes("Network")
-    ) {
-      console.warn("Using fallback notes generation due to network error");
+    // Create fallback notes
+    console.warn("Using fallback notes generation due to API error");
 
-      // Create structured Notion-like notes with proper spacing and rich formatting
-      const fallbackNotes = `# Notes from Transcription
+    // Create structured Notion-like notes with proper spacing and rich formatting
+    const fallbackNotes = `# Notes from Transcription
 
 ## Key Points
 
 - ${transcription.split(".")[0]}.
 - The main subject discussed is about ${
-        transcription.substring(0, 30).toLowerCase().includes("the")
-          ? transcription.substring(
-              transcription.toLowerCase().indexOf("the") + 4,
-              transcription.toLowerCase().indexOf("the") + 20
-            )
-          : "the topic"
-      }.
+      transcription.substring(0, 30).toLowerCase().includes("the")
+        ? transcription.substring(
+            transcription.toLowerCase().indexOf("the") + 4,
+            transcription.toLowerCase().indexOf("the") + 20
+          )
+        : "the topic"
+    }.
 - There are important concepts mentioned in the text.
 
 ## Summary
@@ -544,10 +501,7 @@ ${
 
 > Note: This is a fallback version generated locally due to API connectivity issues.`;
 
-      return fallbackNotes;
-    }
-
-    throw error;
+    return fallbackNotes;
   }
 }
 
