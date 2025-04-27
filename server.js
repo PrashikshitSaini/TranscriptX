@@ -5,6 +5,7 @@ const axios = require("axios");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 // Check for required API keys after loading dotenv
 if (!process.env.DEEPSEEK_API_KEY || !process.env.ASSEMBLY_API_KEY) {
@@ -21,18 +22,66 @@ if (!fs.existsSync(uploadDir)) {
 }
 console.log(`[Server Setup] Upload directory configured at: ${uploadDir}`);
 
+// Define allowed file types
+const fileFilter = (req, file, cb) => {
+  // Accept audio files only
+  const allowedTypes = [
+    "audio/wav",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/mp4",
+    "audio/ogg",
+    "audio/webm",
+  ];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Invalid file type. Only audio files are allowed."), false);
+  }
+};
+
+// Configure storage with randomized filenames
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
+  destination: (req, file, cb) => {
     cb(null, uploadDir);
   },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + "-" + file.originalname.replace(/\s+/g, "-"));
+  filename: (req, file, cb) => {
+    // Generate random filename to prevent path traversal attacks
+    crypto.randomBytes(16, (err, raw) => {
+      if (err) return cb(err);
+
+      // Use original extension but randomize filename
+      const fileExt = path.extname(file.originalname);
+      const safeName = raw.toString("hex") + fileExt;
+      cb(null, safeName);
+    });
   },
 });
 
+// Set up multer with size limits and filters
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 200 * 1024 * 1024 },
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 200 * 1024 * 1024, // 50MB max file size
+  },
+});
+
+// Error handling middleware for multer errors
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    // Multer-specific error handling
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res
+        .status(413)
+        .json({ error: "File size too large. Max 200MB allowed." });
+    }
+    return res.status(400).json({ error: `Upload error: ${err.message}` });
+  } else if (err) {
+    // Generic error handling
+    return res.status(500).json({ error: err.message });
+  }
+  next();
 });
 
 // Middleware
@@ -50,57 +99,103 @@ const assembly = axios.create({
 
 // --- API Routes ---
 
-// File upload endpoint - MODIFIED TO UPLOAD DIRECTLY TO ASSEMBLYAI
-app.post("/api/upload", upload.single("audio"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No file uploaded" });
-  }
+// File upload endpoint - MODIFIED TO HANDLE MULTIPLE FIELD NAMES
+app.post("/api/upload", (req, res, next) => {
+  // Create multer instance dynamically for this request
+  const uploadHandler = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: {
+      fileSize: 200 * 1024 * 1024, // 200MB max file size
+    },
+  }).any(); // Accept any field name
 
-  try {
-    console.log(
-      `[Upload] File ${req.file.filename} saved locally. Now uploading to AssemblyAI...`
-    );
-
-    // Read the file from disk as a Buffer
-    const audioFilePath = path.join(uploadDir, req.file.filename);
-    const audioData = fs.readFileSync(audioFilePath);
-
-    // Create upload request to AssemblyAI with proper headers for uploading bytes
-    const uploadResponse = await assembly.post("/upload", audioData, {
-      headers: {
-        "Content-Type": "application/octet-stream", // Important for binary data
-      },
-    });
-
-    if (!uploadResponse.data || !uploadResponse.data.upload_url) {
-      throw new Error("Failed to get upload URL from AssemblyAI");
+  // Process the upload with our configured multer instance
+  uploadHandler(req, res, (err) => {
+    if (err) {
+      // Forward to error middleware
+      return next(err);
     }
 
-    const assemblyUploadUrl = uploadResponse.data.upload_url;
+    // Check if any file was uploaded
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    // Use the first file found
+    const uploadedFile = req.files[0];
+
+    // Sanitize file path before returning to client
+    const sanitizedPath = path.basename(uploadedFile.path);
+    const uploadUrl = `/uploads/${sanitizedPath}`;
+
+    // Log successful upload with field name for debugging
     console.log(
-      `[AssemblyAI Upload] Success! Audio uploaded directly to AssemblyAI at: ${assemblyUploadUrl}`
+      `[Upload] File received with field name: ${uploadedFile.fieldname}`
     );
 
-    // Return the AssemblyAI upload_url instead of a local URL
-    // The client will send this URL back for transcription
     res.json({
-      filename: req.file.filename,
-      url: assemblyUploadUrl, // This is now an AssemblyAI URL, not a local path
+      success: true,
+      filePath: uploadUrl,
+      originalName: uploadedFile.originalname,
+      url: uploadUrl, // Add this field to match what the client expects
     });
-  } catch (error) {
-    console.error("[AssemblyAI Upload] Error:", error.message);
-    res.status(500).json({
-      error: "Failed to upload audio to AssemblyAI",
-      details: error.message,
-    });
-  }
+  });
 });
 
-// Transcription endpoint - Modified to use AssemblyAI's upload_url directly
+// Transcription endpoint - Modified to handle both local and AssemblyAI URLs
 app.post("/api/transcription", async (req, res) => {
   try {
-    const { audioUrl } = req.body; // This should now be AssemblyAI's upload_url
+    let { audioUrl } = req.body;
 
+    // Log the received URL for debugging
+    console.log("[Transcription Request] Received URL:", audioUrl);
+
+    // Handle local URLs from our uploads folder
+    if (audioUrl && audioUrl.startsWith("/uploads/")) {
+      console.log(
+        `[Transcription Request] Converting local URL to AssemblyAI URL: ${audioUrl}`
+      );
+
+      // Fix the path resolution to properly locate uploaded files
+      const fileName = path.basename(audioUrl);
+      const localFilePath = path.join(uploadDir, fileName);
+
+      console.log(
+        `[Transcription Request] Looking for file at: ${localFilePath}`
+      );
+
+      // Verify the file exists
+      if (!fs.existsSync(localFilePath)) {
+        console.error(
+          `[Transcription Request] File not found: ${localFilePath}`
+        );
+        return res.status(404).json({ error: "File not found" });
+      }
+
+      // Create a read stream for the file
+      const fileStream = fs.createReadStream(localFilePath);
+
+      // Upload to AssemblyAI
+      console.log(`[Transcription Request] Uploading local file to AssemblyAI`);
+      const uploadResponse = await axios.post(
+        "https://api.assemblyai.com/v2/upload",
+        fileStream,
+        {
+          headers: {
+            authorization: process.env.ASSEMBLY_API_KEY,
+            "content-type": "application/octet-stream",
+          },
+        }
+      );
+
+      audioUrl = uploadResponse.data.upload_url;
+      console.log(
+        `[Transcription Request] Uploaded to AssemblyAI, received URL: ${audioUrl}`
+      );
+    }
+
+    // Now validate the URL is an AssemblyAI URL
     if (!audioUrl || !audioUrl.startsWith("https://cdn.assemblyai.com/")) {
       console.error("[Transcription Request] Invalid URL format:", audioUrl);
       return res.status(400).json({
@@ -108,10 +203,6 @@ app.post("/api/transcription", async (req, res) => {
           "Invalid AssemblyAI URL format. URL must start with https://cdn.assemblyai.com/",
       });
     }
-
-    console.log(
-      `[Transcription Request] Using AssemblyAI upload_url: ${audioUrl}`
-    );
 
     // Create transcription request using the upload_url
     const response = await assembly.post("/transcript", {
@@ -129,9 +220,11 @@ app.post("/api/transcription", async (req, res) => {
       "[Transcription Request] Error:",
       error.response ? error.response.data : error.message
     );
-    res
-      .status(error.response?.status || 500)
-      .json({ error: "Failed to request transcription" });
+    res.status(error.response?.status || 500).json({
+      error:
+        "Failed to request transcription: " +
+        (error.message || "Unknown error"),
+    });
   }
 });
 
