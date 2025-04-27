@@ -24,19 +24,31 @@ console.log(`[Server Setup] Upload directory configured at: ${uploadDir}`);
 
 // Define allowed file types
 const fileFilter = (req, file, cb) => {
+  // Log the received file details for debugging large uploads
+  console.log(
+    `[File Filter] Received file: ${file.originalname}, MIME type: ${file.mimetype}`
+  );
+
   // Accept audio files only
   const allowedTypes = [
     "audio/wav",
     "audio/mpeg",
     "audio/mp3",
-    "audio/mp4",
+    "audio/mp4", // Added mp4 just in case (often used for m4a)
     "audio/ogg",
+    "audio/flac",
     "audio/webm",
+    "audio/x-m4a", // Explicitly add x-m4a
   ];
-  if (allowedTypes.includes(file.mimetype)) {
+  if (file.mimetype && allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error("Invalid file type. Only audio files are allowed."), false);
+    // Log the rejection
+    console.error(
+      `[File Filter] Rejected file: ${file.originalname}, Invalid MIME type: ${file.mimetype}`
+    );
+    // Use a specific error message that we can check later
+    cb(new Error("INVALID_FILE_TYPE"), false);
   }
 };
 
@@ -58,35 +70,52 @@ const storage = multer.diskStorage({
   },
 });
 
-// Set up multer with size limits and filters
+// --- Middleware ---
+// Increase payload size limits BEFORE other middleware and routes
+// Set a limit slightly higher than your max file size (e.g., 250MB)
+app.use(express.json({ limit: "250mb" }));
+app.use(express.urlencoded({ limit: "250mb", extended: true }));
+
+// CORS Middleware
+app.use(cors());
+
+// --- Multer Setup --- (Keep multer setup as is)
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 200 * 1024 * 1024, // 50MB max file size
+    fileSize: 200 * 1024 * 1024, // 200MB max file size (Multer limit)
   },
 });
 
-// Error handling middleware for multer errors
+// Error handling middleware for multer errors AND the specific file type error
 app.use((err, req, res, next) => {
+  console.error("[Error Middleware] Caught error:", err.message); // Log the error message
+
   if (err instanceof multer.MulterError) {
     // Multer-specific error handling
+    console.error("[Error Middleware] Multer error:", err.code);
     if (err.code === "LIMIT_FILE_SIZE") {
       return res
         .status(413)
         .json({ error: "File size too large. Max 200MB allowed." });
     }
     return res.status(400).json({ error: `Upload error: ${err.message}` });
+  } else if (err && err.message === "INVALID_FILE_TYPE") {
+    // Handle the specific file type error from our filter
+    console.error("[Error Middleware] Invalid file type detected.");
+    return res
+      .status(415) // 415 Unsupported Media Type is more appropriate
+      .json({ error: "Invalid file type. Only audio files are allowed." });
   } else if (err) {
-    // Generic error handling
-    return res.status(500).json({ error: err.message });
+    // Generic error handling for other errors
+    console.error("[Error Middleware] Generic error:", err);
+    return res
+      .status(500)
+      .json({ error: err.message || "An unexpected error occurred" });
   }
   next();
 });
-
-// Middleware
-app.use(cors());
-app.use(express.json());
 
 // --- AssemblyAI Endpoints ---
 const assembly = axios.create({
@@ -121,7 +150,7 @@ app.post("/api/upload", (req, res, next) => {
   // Process the upload with our configured multer instance
   uploadHandler(req, res, (err) => {
     if (err) {
-      // Forward to error middleware
+      // Forward error to the error handling middleware
       return next(err);
     }
 
