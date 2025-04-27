@@ -124,7 +124,7 @@ export async function updateNote(noteId, updatedData) {
       ...updatedData,
       lastModified: serverTimestamp(), // Update the last modified timestamp
     });
-    // Remove console.log("Note updated successfully:", noteId);
+    
   } catch (error) {
     console.error("Error updating note:", error);
     throw new Error("Could not update note in Firestore.");
@@ -156,7 +156,7 @@ export async function getUserNotes(userId) {
         ? doc.data().createdAt.toDate()
         : null,
     }));
-    // Remove console.log(`Fetched ${notes.length} notes for user ${userId}`);
+    
     return notes;
   } catch (error) {
     console.error("Error fetching user notes:", error);
@@ -175,7 +175,7 @@ export async function getNoteById(noteId) {
     const noteRef = doc(db, NOTES_COLLECTION, noteId);
     const docSnap = await getDoc(noteRef);
     if (docSnap.exists()) {
-      // Remove console.log("Fetched note content for ID:", noteId);
+      
       return { id: docSnap.id, ...docSnap.data() };
     } else {
       console.warn("No note found with ID:", noteId);
@@ -198,7 +198,7 @@ export async function deleteNote(noteId) {
   try {
     const noteRef = doc(db, NOTES_COLLECTION, noteId);
     await deleteDoc(noteRef);
-    // Remove console.log("Note deleted successfully:", noteId);
+    
   } catch (error) {
     console.error("Error deleting note:", error);
     throw new Error("Could not delete note from Firestore.");

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react"; // Add useCallback
+import React, { useState, useEffect, useCallback} from "react"; // Add useCallback , useMemo
 import "./styles/App.css";
 import Header from "./components/Header";
 import AudioRecorder from "./components/AudioRecorder";
 import FileUploader from "./components/FileUploader";
-import TranscriptionDisplay from "./components/TranscriptionDisplay";
+// import TranscriptionDisplay from "./components/TranscriptionDisplay";
 import NotesEditor from "./components/NotesEditor";
 import Login from "./components/Login";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -17,7 +17,7 @@ import {
   getUserNotes,
   getNoteById,
   updateNote,
-  deleteNote,
+  // deleteNote,
 } from "./services/notesService"; // Import notes service
 import { extractTitleFromContent } from "./utils/textSanitizer"; // Keep this, but it will be modified
 
@@ -178,7 +178,7 @@ function AppContent() {
       // Also skip increment for admin user
       if (!isAdmin && isNewTranscription && !usageCounted) {
         // Add !isAdmin condition
-        // Remove console.log("Incrementing usage count - new transcription");
+        
         await incrementUsage();
         setUsageCounted(true);
       } else if (isAdmin) {
@@ -329,6 +329,33 @@ function AppContent() {
   };
 
   // --- End Notes Management Functions ---
+
+  // Request server to clean up files when component unmounts or on page refresh
+  const requestCleanup = useCallback(async () => {
+    try {
+      await axios.post("/api/cleanup-files");
+      console.log("Requested server to clean up old files");
+    } catch (err) {
+      console.error("Failed to request file cleanup:", err);
+    }
+  }, []);
+
+  // Set up event listener for page unload/refresh
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      requestCleanup();
+      // Note: The async function might not complete before the page unloads,
+      // but the request will still be sent to the server
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    // Cleanup on component unmount
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      requestCleanup();
+    };
+  }, [requestCleanup]);
 
   if (!currentUser) {
     return <Login />;

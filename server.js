@@ -101,6 +101,14 @@ const assembly = axios.create({
 
 // File upload endpoint - MODIFIED TO HANDLE MULTIPLE FIELD NAMES
 app.post("/api/upload", (req, res, next) => {
+  // Clean up old files before processing new upload
+  try {
+    cleanupUploads();
+  } catch (err) {
+    console.error("[Upload] Cleanup error:", err);
+    // Continue with upload even if cleanup fails
+  }
+
   // Create multer instance dynamically for this request
   const uploadHandler = multer({
     storage: storage,
@@ -367,6 +375,54 @@ Follow these rules precisely:
       error: "Failed to generate notes using DeepSeek API.",
       fallback: true,
     });
+  }
+});
+
+// --- File Cleanup Utilities ---
+const cleanupUploads = (maxAgeMinutes = 30) => {
+  console.log("[Cleanup] Scanning upload directory for old files...");
+
+  const files = fs.readdirSync(uploadDir);
+  const now = Date.now();
+  let deletedCount = 0;
+
+  files.forEach((file) => {
+    const filePath = path.join(uploadDir, file);
+
+    try {
+      const stats = fs.statSync(filePath);
+      const fileAgeMs = now - stats.mtimeMs;
+      const fileAgeMinutes = fileAgeMs / (1000 * 60);
+
+      // Delete files older than the maxAge
+      if (fileAgeMinutes > maxAgeMinutes) {
+        fs.unlinkSync(filePath);
+        deletedCount++;
+        console.log(
+          `[Cleanup] Deleted old file: ${file} (${Math.round(
+            fileAgeMinutes
+          )} minutes old)`
+        );
+      }
+    } catch (err) {
+      console.error(`[Cleanup] Error processing file ${file}:`, err);
+    }
+  });
+
+  console.log(
+    `[Cleanup] Removed ${deletedCount} old files from upload directory`
+  );
+  return deletedCount;
+};
+
+// Cleanup endpoint
+app.post("/api/cleanup-files", (req, res) => {
+  try {
+    const deletedCount = cleanupUploads();
+    res.json({ success: true, deletedCount });
+  } catch (err) {
+    console.error("[Cleanup] Error during cleanup:", err);
+    res.status(500).json({ error: "Failed to clean up files" });
   }
 });
 

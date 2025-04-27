@@ -25,8 +25,6 @@ async function uploadFileToServer(file, onProgress) {
     // The server now gives us the AssemblyAI URL directly, no need for manipulation
     const assemblyUrl = response.data.url;
 
-    console.log("File uploaded to AssemblyAI, received URL:", assemblyUrl);
-
     // Return the AssemblyAI upload_url directly
     return assemblyUrl;
   } catch (error) {
@@ -52,7 +50,6 @@ function readFileAsArrayBuffer(file) {
 async function requestTranscriptionViaServer(audioUrl, onProgress) {
   try {
     onProgress(60);
-    console.log("Requesting transcription via backend for URL:", audioUrl);
 
     // Call your backend transcription endpoint
     const response = await axios.post(TRANSCRIPTION_API_URL, {
@@ -60,7 +57,6 @@ async function requestTranscriptionViaServer(audioUrl, onProgress) {
     });
 
     onProgress(70);
-    console.log("Backend transcription request response:", response.data);
     if (!response.data.id) {
       throw new Error("Backend did not return a transcription ID.");
     }
@@ -81,7 +77,7 @@ async function checkTranscriptionStatusViaServer(transcriptId) {
     const response = await axios.get(
       `${TRANSCRIPTION_API_URL}/${transcriptId}`
     );
-    console.log("Backend transcription status check:", response.data);
+
     return response.data; // Assumes backend returns the full status object
   } catch (error) {
     console.error("Backend status check error:", error);

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import styled from "styled-components";
+import axios from "axios"; // Add axios import
 
 const UploaderContainer = styled.div`
   display: flex;
@@ -60,7 +61,17 @@ function FileUploader({ onFileSelected, setIsProcessing }) {
   const [fileReady, setFileReady] = useState(false);
   const fileInputRef = React.useRef();
 
-  const handleFileSelect = (event) => {
+  // Request cleanup when new file is selected
+  const requestCleanup = async () => {
+    try {
+      await axios.post("/api/cleanup-files");
+      console.log("Requested server to clean up old files");
+    } catch (err) {
+      console.error("Failed to request file cleanup:", err);
+    }
+  };
+
+  const handleFileSelect = async (event) => {
     const file = event.target.files[0];
     if (file) {
       if (
@@ -73,6 +84,9 @@ function FileUploader({ onFileSelected, setIsProcessing }) {
           setFileReady(false);
           return;
         }
+
+        // Request cleanup when a new file is selected
+        await requestCleanup();
 
         setSelectedFile(file);
         setFileReady(true);
@@ -98,7 +112,8 @@ function FileUploader({ onFileSelected, setIsProcessing }) {
     e.stopPropagation();
   };
 
-  const handleDrop = (e) => {
+  // Update handleDrop to also clean up
+  const handleDrop = async (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
@@ -111,6 +126,9 @@ function FileUploader({ onFileSelected, setIsProcessing }) {
           setError("File is too large. Maximum size is 200MB.");
           return;
         }
+
+        // Request cleanup when a new file is dropped
+        await requestCleanup();
 
         setSelectedFile(file);
         setFileReady(true);
